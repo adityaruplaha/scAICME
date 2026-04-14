@@ -3,6 +3,7 @@ from typing import Tuple
 import pandas as pd
 from anndata import AnnData
 from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
 
 from ..base import LabelingResult
 from .ml_base import BaseMLPropagation
@@ -72,6 +73,8 @@ class NeuralNetworkPropagation(BaseMLPropagation):
 
     def execute_on(self, adata: AnnData) -> LabelingResult:
         X, X_train, y_train, y_raw, is_labeled = self._prepare_data(adata)
+        label_encoder = LabelEncoder()
+        y_train_encoded = label_encoder.fit_transform(y_train)
 
         clf = MLPClassifier(
             hidden_layer_sizes=self.hidden_layer_sizes,
@@ -83,9 +86,9 @@ class NeuralNetworkPropagation(BaseMLPropagation):
             early_stopping=self.early_stopping,
             random_state=self.random_state,
         )
-        clf.fit(X_train, y_train)
+        clf.fit(X_train, y_train_encoded)
 
-        preds = clf.predict(X)
+        preds = label_encoder.inverse_transform(clf.predict(X))
         probs = clf.predict_proba(X)
         max_probs = probs.max(axis=1)
 
@@ -99,7 +102,9 @@ class NeuralNetworkPropagation(BaseMLPropagation):
             labels=final_labels,
             obs={"confidence": pd.Series(max_probs, index=adata.obs_names)},
             obsm={
-                "probabilities": pd.DataFrame(probs, index=adata.obs_names, columns=clf.classes_)
+                "probabilities": pd.DataFrame(
+                    probs, index=adata.obs_names, columns=label_encoder.classes_
+                )
             },
             uns={"fraction_propagated": float((~is_labeled).mean())},
         )

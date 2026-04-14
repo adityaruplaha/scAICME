@@ -1,13 +1,13 @@
 """
 Tests for Tooling / Dispatcher (tl.label function).
 
-Tests the main dispatcher function `ssa.tl.label` which handles:
+Tests the main dispatcher function `icme.tl.label` which handles:
 - Single strategy execution
 - Batch execution with lists (auto-named)
 - Batch execution with dicts (custom-named)
 """
 
-from ssa_scrna import strategies, tl
+from scAICME import strategies, tl
 
 
 class TestLabelDispatcher:
@@ -132,7 +132,7 @@ class TestLabelDispatcher:
 
         # Both should produce labels
         all_columns = synthetic_adata.obs.columns
-        label_columns = [c for c in all_columns if "_ssa_label_" in c or c.startswith("_")]
+        label_columns = [c for c in all_columns if "_icme_label_" in c or c.startswith("_")]
 
         # At least 2 label columns should be created
         assert len(label_columns) >= 2

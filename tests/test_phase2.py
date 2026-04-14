@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ssa_scrna import strategies, tl
+from scAICME import strategies, tl
 
 
 class TestKNNPropagation:

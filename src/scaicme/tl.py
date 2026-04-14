@@ -135,14 +135,14 @@ def label(
     --------
     #### 1. Single Strategy (Sequential)
     >>> strat = AdaptiveThresholding(markers=my_markers, quota=50)
-    >>> results = ssa.tl.label(adata, strategies=strat, key_added="seeds_fixed")
+    >>> results = icme.tl.label(adata, strategies=strat, key_added="seeds_fixed")
     >>> # Returns: {"seeds_fixed": LabelingResult}
 
     #### 2. List Batch (Parallel, Auto-named)
     >>> # Useful for parameter sweeps where names don't matter yet
     >>> strategies = [AdaptiveThresholding(markers, quota=q) for q in [10, 50, 100]]
-    >>> results = ssa.tl.label(adata, strategies=strategies)
-    >>> # Returns: {'_ssa_label_adaptive': LabelingResult, '_ssa_label_adaptive_1': LabelingResult, '_ssa_label_adaptive_2': LabelingResult}
+    >>> results = icme.tl.label(adata, strategies=strategies)
+    >>> # Returns: {'_icme_label_adaptive': LabelingResult, '_icme_label_adaptive_1': LabelingResult, '_icme_label_adaptive_2': LabelingResult}
 
     #### 3. Dictionary Batch (Parallel, Custom-named)
     >>> # Useful for defining semantic variations
@@ -150,7 +150,7 @@ def label(
     ...     "seeds_strict": AdaptiveThresholding(markers, quota=10),
     ...     "seeds_loose": AdaptiveThresholding(markers, quota=100)
     ... }
-    >>> results = ssa.tl.label(adata, strategies=batch)
+    >>> results = icme.tl.label(adata, strategies=batch)
     >>> # Returns: {'seeds_strict': LabelingResult, 'seeds_loose': LabelingResult}
     """
 

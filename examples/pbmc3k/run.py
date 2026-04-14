@@ -9,7 +9,7 @@ import pandas as pd
 import scanpy as sc
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-import ssa_scrna as ssa
+import scAICME as icme
 
 # Minimum genes detected per cell to keep obvious low-quality droplets.
 MIN_GENES_TO_RETAIN = 200
@@ -244,7 +244,7 @@ PBMC_MARKERS = {
 def main() -> None:
     """Run the PBMC3k preprocessing example."""
     adata = preprocess_pbmc3k()
-    run_ssa_pipelines(adata)
+    run_icme_pipelines(adata)
 
 
 def add_qc_gene_sets(adata: sc.AnnData) -> None:
@@ -340,16 +340,16 @@ def prepare_features(adata: sc.AnnData, n_pcs: int = 50) -> sc.AnnData:
     return adata
 
 
-def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
+def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
     """Run seeding, propagation from each seed, per-seed consensus, and final consensus."""
     adata = prepare_features(adata)
 
     # ========== Seed Generation ==========
     seed_strategy_instances = [
-        ssa.strategies.QCQAdaptiveSeeding(markers=PBMC_MARKERS),
-        ssa.strategies.OtsuAdaptiveSeeding(markers=PBMC_MARKERS),
-        ssa.strategies.GraphScoreSeeding(markers=PBMC_MARKERS),
-        ssa.strategies.DPMMClusteredAdaptiveSeeding(
+        icme.strategies.QCQAdaptiveSeeding(markers=PBMC_MARKERS),
+        icme.strategies.OtsuAdaptiveSeeding(markers=PBMC_MARKERS),
+        icme.strategies.GraphScoreSeeding(markers=PBMC_MARKERS),
+        icme.strategies.DPMMClusteredAdaptiveSeeding(
             markers=PBMC_MARKERS,
             min_confidence=0.6,
             min_cells_cluster=3,
@@ -357,7 +357,7 @@ def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
         ),
     ]
     seed_strategies = {f"seeds_{s.name}": s for s in seed_strategy_instances}
-    seed_results = ssa.tl.label(adata, strategies=seed_strategies, n_jobs=4)
+    seed_results = icme.tl.label(adata, strategies=seed_strategies, n_jobs=4)
 
     # Print seed counts before propagation
     compute_labeling_counts_matrix(adata, seed_results)
@@ -365,10 +365,10 @@ def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
     # ========== Propagation ==========
     seed_names = list(seed_strategies.keys())
     propagation_factories = [
-        lambda seed_key: ssa.strategies.KNNPropagation(seed_key=seed_key),
-        lambda seed_key: ssa.strategies.RandomForestPropagation(seed_key=seed_key, random_state=0),
-        lambda seed_key: ssa.strategies.NearestCentroidPropagation(seed_key=seed_key),
-        lambda seed_key: ssa.strategies.SVMPropagation(seed_key=seed_key),
+        lambda seed_key: icme.strategies.KNNPropagation(seed_key=seed_key),
+        lambda seed_key: icme.strategies.RandomForestPropagation(seed_key=seed_key, random_state=0),
+        lambda seed_key: icme.strategies.NearestCentroidPropagation(seed_key=seed_key),
+        lambda seed_key: icme.strategies.SVMPropagation(seed_key=seed_key),
     ]
     all_propagation_strategies = {}
     seed_abbr_to_names = {}
@@ -387,7 +387,7 @@ def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
 
     # Execute all propagations in parallel
     max_jobs = os.cpu_count() or 1
-    ssa.tl.label(
+    icme.tl.label(
         adata,
         strategies=all_propagation_strategies,
         n_jobs=min(len(all_propagation_strategies), max_jobs),
@@ -398,19 +398,19 @@ def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
     for seed_abbr in seed_abbr_to_names.keys():
         prop_keys = seed_prop_keys[seed_abbr]
         consensus_key = f"consensus_{seed_abbr}"
-        consensus_tasks[consensus_key] = ssa.strategies.ConsensusVoting(
+        consensus_tasks[consensus_key] = icme.strategies.ConsensusVoting(
             keys=prop_keys, majority_fraction=0.66
         )
 
     # Execute all per-seed consensus votes in parallel
     seed_consensus_keys = list(consensus_tasks.keys())
-    ssa.tl.label(adata, strategies=consensus_tasks, n_jobs=4)
+    icme.tl.label(adata, strategies=consensus_tasks, n_jobs=4)
 
     # ========== Final Consensus ==========
-    final_consensus = ssa.strategies.ConsensusVoting(
+    final_consensus = icme.strategies.ConsensusVoting(
         keys=seed_consensus_keys, majority_fraction=0.66
     )
-    ssa.tl.label(adata, strategies=final_consensus, key_added="labels_final")
+    icme.tl.label(adata, strategies=final_consensus, key_added="labels_final")
 
     # ========== Plot Keys and Visualization ==========
     seed_plot_keys = list(seed_strategies.keys())
@@ -427,7 +427,7 @@ def run_ssa_pipelines(adata: sc.AnnData) -> sc.AnnData:
         if col == "labels_final" or col.startswith("leiden_") or col in seed_consensus_keys
     ]
     compute_ablation_metrics(adata, sorted(ablation_cols))
-    plot_ssa_umaps(
+    plot_icme_umaps(
         adata,
         seed_plot_keys=seed_plot_keys,
         dpmm_plot_keys=dpmm_plot_keys,
@@ -444,7 +444,7 @@ def compute_labeling_counts_matrix(adata: sc.AnnData, seed_results: dict) -> Non
 
     Args:
         adata: AnnData object with labeled cells in obs
-        seed_results: Dict returned from ssa.tl.label() with column keys as keys
+        seed_results: Dict returned from icme.tl.label() with column keys as keys
     """
     print("\n" + "=" * 70)
     print("SEED LABELING STATISTICS")
@@ -457,7 +457,9 @@ def compute_labeling_counts_matrix(adata: sc.AnnData, seed_results: dict) -> Non
     for seed_col in seed_results.keys():
         seed_count = int((adata.obs[seed_col] != "unknown").sum())
         pct = 100.0 * seed_count / n_cells
-        seed_data.append({"strategy": seed_col, "labelled_seed": seed_count, "%": f"{pct:.1f}%"})
+        seed_data.append(
+            {"strategy": seed_col, "seed_count": seed_count, "seed_pct": f"{pct:.1f}%"}
+        )
 
     seed_df = pd.DataFrame(seed_data).set_index("strategy")
     print(seed_df.to_string())
@@ -604,7 +606,7 @@ def _build_legend_handles(color_keys: list[str], adata: sc.AnnData, palette: dic
     return handles_dict
 
 
-def plot_ssa_umaps(
+def plot_icme_umaps(
     adata: sc.AnnData,
     seed_plot_keys: list[str],
     dpmm_plot_keys: list[str],

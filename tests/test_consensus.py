@@ -8,7 +8,7 @@ to generate high-confidence consensus seeds.
 import pandas as pd
 import pytest
 
-from ssa_scrna import strategies, tl
+from scAICME import strategies, tl
 
 
 class TestConsensusVoting:

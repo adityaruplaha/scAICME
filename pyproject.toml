@@ -1,5 +1,5 @@
 [project]
-name = "ssa-scrna"
+name = "scAICME"
 version = "0.1.1"
 description = "Semi-supervised annotation of scRNA-seq data"
 readme = "README.md"
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ssa-examples = "ssa_examples:main"
+icme-examples = "icme_examples:main"
 
 [dependency-groups]
 dev = ["pytest>=9.0.2", "ruff>=0.1.0"]

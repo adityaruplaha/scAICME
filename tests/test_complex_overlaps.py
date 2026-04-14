@@ -8,8 +8,9 @@ Tests strategies across 4 complex biological marker scenarios:
 4. Complex mixed patterns (most realistic)
 """
 
-from ssa_scrna import strategies, tl
-from ssa_scrna.tl import LabelingResult
+from scAICME.tl import LabelingResult
+
+from scAICME import strategies, tl
 
 
 class TestUbiquitousGenePattern:
@@ -35,7 +36,7 @@ class TestUbiquitousGenePattern:
 
         # Validate DTO payload
         assert labeling_result.adata is not None
-        assert labeling_result.strategy.__class__.__name__ == "QCQAdaptiveThresholding"
+        assert labeling_result.strategy.__class__.__name__ == "QCQAdaptiveSeeding"
         assert labeling_result.obs is not None
         assert labeling_result.obsm is not None
         assert labeling_result.uns is not None
@@ -456,7 +457,7 @@ class TestDTOValidationAcrossPatterns:
 
         assert labeling_result.labels is not None
         assert labeling_result.adata is not None
-        assert labeling_result.strategy.__class__.__name__ == "QCQAdaptiveThresholding"
+        assert labeling_result.strategy.__class__.__name__ == "QCQAdaptiveSeeding"
         assert isinstance(labeling_result.obs, dict)
         assert isinstance(labeling_result.obsm, dict)
         assert isinstance(labeling_result.uns, dict)

@@ -1,25 +1,25 @@
-# ssa-scRNA: Semi-Supervised Annotation of scRNA-seq Data
+# scAICME: scRNA-seq Annotation by Identifying Canonical Marker Expressions
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 ## Overview
 
-`ssa-scRNA` is a Python package for semi-supervised cell type annotation of scRNA-seq data. The pipeline combines weak-labeling strategies (QCQ, Otsu, graph-based, Dirichlet Process) with supervised label propagation (KNN, Random Forest, Centroid) and consensus voting to assign cell type labels from marker genes.
+`scAICME` is a Python package for marker-driven semi-supervised annotation in scRNA-seq data. The pipeline combines seed-labelling strategies (adaptive thresholding, GCNs, DPGMMs), identity extension models (ensemble supervised learning methods), and consensus voting to infer likely cell types from canonical marker genes.
 
 ### Intended Use
 
 This package is designed for annotating scRNA-seq datasets when you have prior knowledge of marker genes for target cell types. It is not intended for unsupervised clustering or novel cell type discovery (yet!). Instead, it provides a robust framework for leveraging known biology to generate high-confidence annotations.
 
 **Key characteristics:**
-- Combines multiple weak labeling strategies for robust predictions
-- Propagates labels from seed assignments to unlabeled cells
+- Combines multiple seeding strategies for robust identity evidence
+- Extends identity assignments from high-confidence seeds to unlabeled cells
 - Evaluates method agreement using Adjusted Rand Index (ARI) and Normalized Mutual Information (NMI)
 - Runs efficiently on standard hardware, taking advantage of parallel processing where possible
 
 **Requirements and Limitations:**
 - Requires prior knowledge of marker genes for target cell types
-- Annotation accuracy depends directly on marker gene quality
+- Identification accuracy depends directly on marker gene quality
 - Limited to cell types with defined markers (no automated discovery)
 - Works best with well-separated cell types in the data
 
@@ -33,7 +33,7 @@ The package requires Python ≥ 3.10. Core dependencies (scanpy, scikit-learn, p
 
 ```python
 import scanpy as sc
-import ssa_scrna as ssa
+import scAICME as icme
 
 # Load your scRNA-seq data
 adata = sc.read_h5ad("data/pbmc.h5ad")
@@ -49,11 +49,11 @@ markers = {
 
 # Phase 1: Generate seed labels from multiple strategies (no consensus)
 seed_strategies = {
-    "seeds_qcq": ssa.strategies.QCQAdaptiveThresholding(markers=markers),
-    "seeds_otsu": ssa.strategies.OtsuAdaptiveThresholding(markers=markers),
-    "seeds_graph": ssa.strategies.GraphScorePropagation(markers=markers),
+    "seeds_qcq": icme.strategies.QCQAdaptiveSeeding(markers=markers),
+    "seeds_otsu": icme.strategies.OtsuAdaptiveSeeding(markers=markers),
+    "seeds_graph": icme.strategies.GraphScoreSeeding(markers=markers),
 }
-ssa.tl.label(adata, strategies=seed_strategies, n_jobs=4)
+icme.tl.label(adata, strategies=seed_strategies, n_jobs=4)
 
 # Phase 2: Propagate labels independently from each seed source
 # This allows different propagation methods to learn from different seed qualities
@@ -63,21 +63,21 @@ all_propagated_labels = []
 for seed_name in seed_strategies.keys():
     propagators = {
         f"prop_{method}_{seed_name.split('_')[1]}": (
-            ssa.strategies.KNNPropagation(seed_key=seed_name)
+            icme.strategies.KNNPropagation(seed_key=seed_name)
             if method == "knn"
-            else ssa.strategies.RandomForestPropagation(seed_key=seed_name)
+            else icme.strategies.RandomForestPropagation(seed_key=seed_name)
         )
         for method in propagation_methods
     }
-    ssa.tl.label(adata, strategies=propagators, n_jobs=2)
+    icme.tl.label(adata, strategies=propagators, n_jobs=2)
     all_propagated_labels.extend(propagators.keys())
 
 # Phase 3: Final consensus across all propagated predictions
-final_consensus = ssa.strategies.ConsensusVoting(
+final_consensus = icme.strategies.ConsensusVoting(
     keys=all_propagated_labels,
     majority_fraction=0.66
 )
-ssa.tl.label(adata, strategies=final_consensus, key_added="labels_final")
+icme.tl.label(adata, strategies=final_consensus, key_added="labels_final")
 
 # Results are stored in adata.obs
 print(adata.obs["labels_final"].value_counts())
@@ -87,8 +87,8 @@ print(adata.obs["labels_final"].value_counts())
 
 ```python
 # Apply a single strategy
-strategy = ssa.strategies.QCQAdaptiveThresholding(markers=markers, quota=50)
-result = ssa.tl.label(adata, strategies=strategy, key_added="my_labels")
+strategy = icme.strategies.QCQAdaptiveSeeding(markers=markers, quantile=0.95)
+result = icme.tl.label(adata, strategies=strategy, key_added="my_labels")
 
 # Access the result
 print(f"Assigned labels: {result['my_labels'].labels.value_counts()}")
@@ -105,12 +105,12 @@ import asyncio
 
 async def label_multiple():
     strategies = [
-        ssa.strategies.QCQAdaptiveThresholding(markers),
-        ssa.strategies.OtsuAdaptiveThresholding(markers),
+        icme.strategies.QCQAdaptiveSeeding(markers),
+        icme.strategies.OtsuAdaptiveSeeding(markers),
     ]
     
     results = await asyncio.gather(
-        *[ssa.tl.label_async(adata, s) for s in strategies]
+        *[icme.tl.label_async(adata, s) for s in strategies]
     )
     return results
 
@@ -124,7 +124,7 @@ A complete end-to-end pipeline is provided in `examples/pbmc3k/run.py`:
 
 ```bash
 # Run the PBMC3k example
-uv run ssa-examples pbmc3k
+uv run icme-examples pbmc3k
 ```
 
 This demonstrates:
@@ -227,18 +227,18 @@ Use any (or many!) of the following strategies to generate independent seed labe
 
 | Strategy | Class | Description |
 |----------|-------|-------------|
-| QCQ Adaptive Thresholding | `QCQAdaptiveThresholding` | Quantile-based marker scoring with data-driven thresholds |
-| Otsu Adaptive Thresholding | `OtsuAdaptiveThresholding` | Automatic threshold selection via Otsu's method |
-| Graph Score Propagation | `GraphScorePropagation` | Network-based marker co-expression scoring |
-| Dirichlet Process Labeling | `DirichletProcessLabeling` | Bayesian mixture model with automatic component selection and probabilistic confidence bounds |
+| QCQ Adaptive Seeding | `QCQAdaptiveSeeding` | Quantile-based marker scoring with data-driven thresholds |
+| Otsu Adaptive Seeding | `OtsuAdaptiveSeeding` | Automatic threshold selection via Otsu's method |
+| Graph Score Seeding | `GraphScoreSeeding` | Network-based marker co-expression scoring |
+| DPMM Clustered Adaptive Seeding | `DPMMClusteredAdaptiveSeeding` | Bayesian mixture model with automatic component selection and probabilistic confidence bounds |
 
 **Common Parameters:**
 - `markers` (dict): Cell type → marker gene list mapping
 - `unknown_label` (str, default "unknown"): Label for unlabeled cells
 
-### Phase 2: Label Propagation Strategies
+### Phase 2: Identity Extension Strategies
 
-Propagate seed labels to unlabeled cells using supervised learning:
+Extend seed identities to unlabeled cells using supervised learning:
 
 | Strategy | Class | Description |
 |----------|-------|-------------|
@@ -268,11 +268,11 @@ Obtain a final consensus label by combining multiple strategies with majority vo
 **Example Usage:**
 ```python
 # Combine propagation outputs from all seeds at the final stage
-consensus = ssa.strategies.ConsensusVoting(
+consensus = icme.strategies.ConsensusVoting(
     keys=["prop_knn_qcq", "prop_knn_otsu", "prop_rf_qcq", "prop_rf_otsu"],
     majority_fraction=0.66  # Supermajority
 )
-ssa.tl.label(adata, strategies=consensus, key_added="labels_final")
+icme.tl.label(adata, strategies=consensus, key_added="labels_final")
 ```
 
 #### Using `majority_fraction` for Consensus Voting
@@ -286,13 +286,13 @@ Controls how many independent strategies must agree to assign a label:
 **Example:**
 ```python
 # Strict consensus (all methods must agree)
-consensus = ssa.strategies.ConsensusVoting(
+consensus = icme.strategies.ConsensusVoting(
     keys=["seeds_qcq", "seeds_otsu", "seeds_graph"],
     majority_fraction=1.0
 )
 
 # Loose consensus (2 out of 3)
-consensus = ssa.strategies.ConsensusVoting(
+consensus = icme.strategies.ConsensusVoting(
     keys=["seeds_qcq", "seeds_otsu", "seeds_graph"],
     majority_fraction=0.51
 )

@@ -1,6 +1,6 @@
-# `ssa-scRNA`: Strategy Architecture & Design Philosophy
+# `scAICME`: Strategy Architecture & Design Philosophy
 
-`ssa-scRNA` (Semi-Supervised Annotation for Single-Cell RNA) is built around a highly modular, decoupled **Strategy Pattern**. Instead of locking users into a rigid, monolithic pipeline, the library treats every algorithmic step—from weak seed generation to final ensemble propagation—as an independent, interchangeable object adhering to the `BaseLabelingStrategy` contract.
+`scAICME` (Semi-Supervised Annotation for Single-Cell RNA) is built around a highly modular, decoupled **Strategy Pattern**. Instead of locking users into a rigid, monolithic pipeline, the library treats every algorithmic step—from weak seed generation to final ensemble propagation—as an independent, interchangeable object adhering to the `BaseLabelingStrategy` contract.
 
 This document details the expected behavior, mathematical foundations, and design considerations behind each implemented strategy.
 

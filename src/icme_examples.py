@@ -25,7 +25,7 @@ def _available_examples(examples_dir: Path) -> list[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an ssa-scrna example by name.")
+    parser = argparse.ArgumentParser(description="Run an scAICME example by name.")
     parser.add_argument("example", nargs="?", help="Example name (e.g., pbmc3k)")
     parser.add_argument(
         "--list",

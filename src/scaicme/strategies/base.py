@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-SSA_LABEL_PREFIX = "_ssa_label"  # Default prefix for storing results into AnnData
+ICME_LABEL_PREFIX = "_icme_label"  # Default prefix for storing results into AnnData
 
 
 @dataclass
@@ -81,7 +81,7 @@ class LabelingResult:
         # Determine a unique key to save this result under, if not provided.
         base = key
         if base is None:
-            base = f"{SSA_LABEL_PREFIX}_{self.strategy.name}"
+            base = f"{ICME_LABEL_PREFIX}_{self.strategy.name}"
             key = base
             c = 1
             while key in self.adata.obs:

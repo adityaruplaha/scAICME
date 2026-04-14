@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for ssa-scRNA test suite.
+Pytest configuration and fixtures for scAICME test suite.
 
 Provides reproducible synthetic AnnData objects with injected biological signals
 for testing all labeling strategies.

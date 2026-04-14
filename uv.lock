@@ -1424,6 +1424,45 @@ wheels = [
 ]
 
 [[package]]
+name = "scaicme"
+version = "0.1.1"
+source = { editable = "." }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scanpy", version = "1.11.5", source = { registry = "https://pypi.org/simple" }, extra = ["leiden"], marker = "python_full_version < '3.12'" },
+    { name = "scanpy", version = "1.12", source = { registry = "https://pypi.org/simple" }, extra = ["leiden"], marker = "python_full_version >= '3.12'" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+examples = [
+    { name = "scikit-misc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=1.17" },
+    { name = "pandas" },
+    { name = "scanpy", extras = ["leiden"], specifier = ">=1.9.0" },
+    { name = "scikit-learn", specifier = ">=1.2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.1.0" },
+]
+examples = [{ name = "scikit-misc", specifier = ">=0.5.2" }]
+
+[[package]]
 name = "scanpy"
 version = "1.11.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1834,45 +1873,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
-
-[[package]]
-name = "ssa-scrna"
-version = "0.1.1"
-source = { editable = "." }
-dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "scanpy", version = "1.11.5", source = { registry = "https://pypi.org/simple" }, extra = ["leiden"], marker = "python_full_version < '3.12'" },
-    { name = "scanpy", version = "1.12", source = { registry = "https://pypi.org/simple" }, extra = ["leiden"], marker = "python_full_version >= '3.12'" },
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-examples = [
-    { name = "scikit-misc" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=1.17" },
-    { name = "pandas" },
-    { name = "scanpy", extras = ["leiden"], specifier = ">=1.9.0" },
-    { name = "scikit-learn", specifier = ">=1.2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.1.0" },
-]
-examples = [{ name = "scikit-misc", specifier = ">=0.5.2" }]
 
 [[package]]
 name = "statsmodels"

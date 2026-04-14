@@ -2,16 +2,16 @@
 Tests for Phase 1: Seed Generation Strategies.
 
 Tests the three main seed generation strategies:
-- QCQAdaptiveThresholding: Quantile-based with quality checks
-- OtsuAdaptiveThresholding: Otsu's method for threshold selection
-- GraphScorePropagation: GCN-style score propagation
+- QCQAdaptiveSeeding: Quantile-based with quality checks
+- OtsuAdaptiveSeeding: Otsu's method for threshold selection
+- GraphScoreSeeding: GCN-style score propagation
 """
 
-from ssa_scrna import strategies, tl
+from scAICME import strategies, tl
 
 
-class TestQCQAdaptiveThresholding:
-    """Test suite for QCQAdaptiveThresholding strategy."""
+class TestQCQAdaptiveSeeding:
+    """Test suite for QCQAdaptiveSeeding strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
         """Test that QCQ strategy runs without error and produces labels."""
@@ -93,8 +93,8 @@ class TestQCQAdaptiveThresholding:
         assert "fraction_assigned" in labeling_result.uns
 
 
-class TestOtsuAdaptiveThresholding:
-    """Test suite for OtsuAdaptiveThresholding strategy."""
+class TestOtsuAdaptiveSeeding:
+    """Test suite for OtsuAdaptiveSeeding strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
         """Test that Otsu strategy runs without error and produces labels."""
@@ -153,8 +153,8 @@ class TestOtsuAdaptiveThresholding:
         assert label in ["Class A", "Class B"], f"Expected cell_0 to be labeled, got {label}"
 
 
-class TestGraphScorePropagation:
-    """Test suite for GraphScorePropagation strategy."""
+class TestGraphScoreSeeding:
+    """Test suite for GraphScoreSeeding strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
         """Test that GraphScore strategy runs without error."""
