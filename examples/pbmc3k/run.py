@@ -347,6 +347,7 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
     # ========== Seed Generation ==========
     seed_strategy_instances = [
         icme.strategies.QCQAdaptiveSeeding(markers=PBMC_MARKERS),
+        icme.strategies.OtsuScoredAdaptiveSeeding(markers=PBMC_MARKERS),
         icme.strategies.OtsuAdaptiveSeeding(markers=PBMC_MARKERS),
         icme.strategies.GraphScoreSeeding(markers=PBMC_MARKERS),
         icme.strategies.DPMMClusteredAdaptiveSeeding(

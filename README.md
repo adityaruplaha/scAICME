@@ -49,8 +49,10 @@ markers = {
 
 # Phase 1: Generate seed labels from multiple strategies (no consensus)
 seed_strategies = {
-    "seeds_qcq": icme.strategies.QCQAdaptiveSeeding(markers=markers),
-    "seeds_otsu": icme.strategies.OtsuAdaptiveSeeding(markers=markers),
+    "seeds_qcq_scored": icme.strategies.QCQScoredAdaptiveSeeding(markers=markers),
+    "seeds_qcq_per_gene": icme.strategies.QCQAdaptiveSeeding(markers=markers),
+    "seeds_otsu_scored": icme.strategies.OtsuScoredAdaptiveSeeding(markers=markers),
+    "seeds_otsu_per_gene": icme.strategies.OtsuAdaptiveSeeding(markers=markers),
     "seeds_graph": icme.strategies.GraphScoreSeeding(markers=markers),
 }
 icme.tl.label(adata, strategies=seed_strategies, n_jobs=4)
@@ -86,8 +88,8 @@ print(adata.obs["labels_final"].value_counts())
 ### Working with Individual Strategies
 
 ```python
-# Apply a single strategy
-strategy = icme.strategies.QCQAdaptiveSeeding(markers=markers, quantile=0.95)
+# Apply a single scored strategy
+strategy = icme.strategies.QCQScoredAdaptiveSeeding(markers=markers, quantile=0.95)
 result = icme.tl.label(adata, strategies=strategy, key_added="my_labels")
 
 # Access the result
@@ -105,7 +107,9 @@ import asyncio
 
 async def label_multiple():
     strategies = [
+        icme.strategies.QCQScoredAdaptiveSeeding(markers),
         icme.strategies.QCQAdaptiveSeeding(markers),
+        icme.strategies.OtsuScoredAdaptiveSeeding(markers),
         icme.strategies.OtsuAdaptiveSeeding(markers),
     ]
     
@@ -227,8 +231,10 @@ Use any (or many!) of the following strategies to generate independent seed labe
 
 | Strategy | Class | Description |
 |----------|-------|-------------|
-| QCQ Adaptive Seeding | `QCQAdaptiveSeeding` | Quantile-based marker scoring with data-driven thresholds |
-| Otsu Adaptive Seeding | `OtsuAdaptiveSeeding` | Automatic threshold selection via Otsu's method |
+| QCQ Adaptive Thresholding on Scored Markers | `QCQScoredAdaptiveSeeding` | `score_genes`-based marker set scoring with quantile + minimum score gates |
+| QCQ Per-Gene Adaptive Thresholding | `QCQAdaptiveSeeding` | Per-gene positive-expression thresholds with active-marker-fraction (`min_confidence`) gating |
+| Otsu Adaptive Thresholding on Scored Markers | `OtsuScoredAdaptiveSeeding` | `score_genes`-based marker set scoring with Otsu + minimum score gates |
+| Otsu Per-Gene Adaptive Thresholding | `OtsuAdaptiveSeeding` | Per-gene Otsu thresholds with active-marker-fraction (`min_confidence`) gating |
 | Graph Score Seeding | `GraphScoreSeeding` | Network-based marker co-expression scoring |
 | DPMM Clustered Adaptive Seeding | `DPMMClusteredAdaptiveSeeding` | Bayesian mixture model with automatic component selection and probabilistic confidence bounds |
 

@@ -18,21 +18,31 @@ This document details the expected behavior, mathematical foundations, and desig
 
 The goal of Phase 1 is to convert continuous marker gene expression into sparse, ultra-high-confidence categorical labels ("seeds"). The priority here is **precision over recall**; it is better to leave a cell as `"unknown"` than to generate a false positive seed.
 
-### 1. QCQ Adaptive Thresholding (`QCQAdaptiveThresholding`)
+### 1. QCQ Adaptive Thresholding on Scored Markers (`QCQScoredAdaptiveSeeding`)
 
-**Concept:** Quality-Checked Quantile (QCQ) acts as a robust statistical heuristic. It scores cells based on marker signatures and strictly selects the top  percentile of expressors, provided they meet a minimum absolute quality threshold.
+**Concept:** Quality-Checked Quantile (QCQ) acts as a robust statistical heuristic. It scores each marker gene set with `scanpy.tl.score_genes`, then gates cells using a population quantile plus a minimum score floor.
 
-* **Expected Behavior:** Calls `sc.tl.score_genes` to generate robust scores (which correct for technical dropout and sequencing depth by subtracting random reference gene sets). It then calculates a dynamic threshold for *each* cell type based on the user-defined `quantile` (e.g., ).
+* **Expected Behavior:** Computes a continuous marker score for each cell type with `scanpy.tl.score_genes`. For each cell type, a cell must pass both gates: score above the configured `quantile` threshold for that score distribution and score above `min_score`.
+* **Design Considerations:** * *Adaptive:* Quantile gating scales with dataset-specific score distributions.
+* *The QC Floor:* `min_score` prevents low-signal tails from being labeled solely due to quantile rank.
+
+
+
+### 1b. QCQ Per-Gene Adaptive Thresholding (`QCQAdaptiveSeeding`)
+
+**Concept:** Quality-Checked Quantile (QCQ) acts as a robust statistical heuristic. It thresholds each marker gene independently using its positive-expression quantile, then scores cells by the fraction of active markers they express. Cells are selected only when that active-marker fraction clears a fixed confidence floor.
+
+* **Expected Behavior:** Computes a per-gene threshold from positive expression values, converts each marker into a binary active/inactive feature, and uses the active marker fraction as the cell-type score. It then compares that score against `min_confidence` rather than applying a second quantile.
 * **Design Considerations:** * *Adaptive:* Hardcoded thresholds fail across different datasets. Quantiles scale dynamically with the dataset's specific expression distribution.
-* *The QC Floor:* The `min_score` parameter prevents the algorithm from labeling the top 5% of a pure noise distribution if a cell type is simply absent from the manifold.
+* *The QC Floor:* The `min_confidence` parameter prevents the algorithm from labeling cells whose active marker fraction is too low, even if the distribution is shifted upward by noise.
 
 
 
-### 2. Otsu's Adaptive Thresholding (`OtsuAdaptiveThresholding`)
+### 2. Otsu Score-Based Thresholding (`OtsuScoredAdaptiveSeeding`)
 
-**Concept:** A parameter-free variance optimization technique borrowed from computer vision. It automatically finds the optimal threshold to separate a bimodal distribution into "Background" and "Signal".
+**Concept:** A parameter-free variance optimization technique borrowed from computer vision. It scores marker sets with `scanpy.tl.score_genes` and automatically finds the optimal threshold to separate a bimodal distribution into "Background" and "Signal".
 
-* **Expected Behavior:** Computes a 1D histogram of marker scores for each cell type. It iteratively searches for a threshold bin  that maximizes the inter-class variance :
+* **Expected Behavior:** Computes a continuous marker score for each cell type with `scanpy.tl.score_genes`, then builds a 1D histogram and searches for the threshold bin that maximizes inter-class variance :
 
 
 
@@ -43,6 +53,16 @@ The goal of Phase 1 is to convert continuous marker gene expression into sparse,
 Where  represents class probabilities and  represents class means.
 * **Design Considerations:** * *Parameter-Free Splitting:* Unlike QCQ, which requires guessing a quantile, Otsu dynamically adapts to the size of the cluster. If 40% of the dataset is T-cells, Otsu will naturally set a threshold that captures the whole 40%, whereas a 95th-percentile QCQ would drop millions of valid cells.
 * *Speed:* Implemented in pure, vectorized NumPy. It calculates the optimal split in milliseconds.
+
+
+
+### 2b. Otsu AMF Thresholding (`OtsuAdaptiveSeeding`)
+
+**Concept:** This is the AMF-based companion to the score-based Otsu variant. It thresholds each marker gene independently using Otsu's method, then scores cells by the fraction of active markers they express.
+
+* **Expected Behavior:** Computes a per-gene Otsu threshold from each gene's expression distribution, converts each marker into a binary active/inactive feature, and uses the active marker fraction as the cell-type score. It then compares that score against `min_confidence`.
+* **Design Considerations:** * *Adaptive:* Hardcoded thresholds fail across different datasets. Otsu adapts to each gene's expression histogram and separates background from signal without a hand-tuned cutoff.
+* *The QC Floor:* The `min_confidence` parameter prevents the algorithm from labeling cells whose active marker fraction is too low, even if the distribution is shifted upward by noise.
 
 
 

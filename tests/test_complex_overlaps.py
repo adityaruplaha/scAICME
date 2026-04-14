@@ -18,7 +18,7 @@ class TestUbiquitousGenePattern:
 
     def test_ubiquitous_qcq_robustness(self, adata_ubiquitous_shared, marker_dict_ubiquitous):
         """QCQ should handle strong ubiquitous background signal."""
-        strategy = strategies.QCQAdaptiveSeeding(
+        strategy = strategies.QCQScoredAdaptiveSeeding(
             markers=marker_dict_ubiquitous, quantile=0.85, min_score=0.01
         )
         result = tl.label(adata_ubiquitous_shared, strategy, key_added="qcq_labels")
@@ -36,14 +36,16 @@ class TestUbiquitousGenePattern:
 
         # Validate DTO payload
         assert labeling_result.adata is not None
-        assert labeling_result.strategy.__class__.__name__ == "QCQAdaptiveSeeding"
+        assert labeling_result.strategy.__class__.__name__ == "QCQScoredAdaptiveSeeding"
         assert labeling_result.obs is not None
         assert labeling_result.obsm is not None
         assert labeling_result.uns is not None
 
     def test_ubiquitous_otsu_robustness(self, adata_ubiquitous_shared, marker_dict_ubiquitous):
         """Otsu should handle strong ubiquitous background signal."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict_ubiquitous, min_score=0.01)
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict_ubiquitous, min_score=0.01
+        )
         result = tl.label(adata_ubiquitous_shared, strategy, key_added="otsu_labels")
         labeling_result = result["otsu_labels"]
 
@@ -105,7 +107,7 @@ class TestHighlySpecificPattern:
         self, adata_highly_specific, marker_dict_highly_specific
     ):
         """QCQ should excel with non-overlapping markers."""
-        strategy = strategies.QCQAdaptiveSeeding(
+        strategy = strategies.QCQScoredAdaptiveSeeding(
             markers=marker_dict_highly_specific, quantile=0.9, min_score=0.01
         )
         result = tl.label(adata_highly_specific, strategy, key_added="qcq_labels")
@@ -125,7 +127,7 @@ class TestHighlySpecificPattern:
         self, adata_highly_specific, marker_dict_highly_specific
     ):
         """Otsu should benefit from sharp marker separation."""
-        strategy = strategies.OtsuAdaptiveSeeding(
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
             markers=marker_dict_highly_specific, min_score=0.01
         )
         result = tl.label(adata_highly_specific, strategy, key_added="otsu_labels")
@@ -189,7 +191,7 @@ class TestHierarchicalOverlapPattern:
         self, adata_hierarchical_overlap, marker_dict_hierarchical
     ):
         """QCQ should handle hierarchical gene overlap."""
-        strategy = strategies.QCQAdaptiveSeeding(
+        strategy = strategies.QCQScoredAdaptiveSeeding(
             markers=marker_dict_hierarchical, quantile=0.9, min_score=0.01
         )
         result = tl.label(adata_hierarchical_overlap, strategy, key_added="qcq_labels")
@@ -209,7 +211,9 @@ class TestHierarchicalOverlapPattern:
         self, adata_hierarchical_overlap, marker_dict_hierarchical
     ):
         """Otsu should discriminate despite hierarchical overlap."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict_hierarchical, min_score=0.01)
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict_hierarchical, min_score=0.01
+        )
         result = tl.label(adata_hierarchical_overlap, strategy, key_added="otsu_labels")
         labeling_result = result["otsu_labels"]
 
@@ -266,7 +270,7 @@ class TestComplexMixedPattern:
 
     def test_complex_mixed_qcq_realistic(self, adata_complex_mixed, marker_dict_complex_mixed):
         """QCQ should handle complex realistic patterns."""
-        strategy = strategies.QCQAdaptiveSeeding(
+        strategy = strategies.QCQScoredAdaptiveSeeding(
             markers=marker_dict_complex_mixed, quantile=0.9, min_score=0.01
         )
         result = tl.label(adata_complex_mixed, strategy, key_added="qcq_labels")
@@ -284,7 +288,9 @@ class TestComplexMixedPattern:
 
     def test_complex_mixed_otsu_realistic(self, adata_complex_mixed, marker_dict_complex_mixed):
         """Otsu should adapt to complex mixed patterns."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict_complex_mixed, min_score=0.01)
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict_complex_mixed, min_score=0.01
+        )
         result = tl.label(adata_complex_mixed, strategy, key_added="otsu_labels")
         labeling_result = result["otsu_labels"]
 

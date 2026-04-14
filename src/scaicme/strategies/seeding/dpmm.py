@@ -201,7 +201,9 @@ class DPMMClusteredAdaptiveSeeding(BaseLabelingStrategy):
         scaler = StandardScaler(with_mean=True, with_std=True)
         standardized_expression = scaler.fit_transform(X)
 
-        n_components = max(2, X.shape[0] // 10)
+        n_components = max(
+            2, int(np.sqrt(X.shape[0]))
+        )  # Heuristic for initial number of components
         bgm = BayesianGaussianMixture(
             n_components=n_components,
             weight_concentration_prior_type="dirichlet_process",

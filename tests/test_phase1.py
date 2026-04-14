@@ -1,21 +1,25 @@
 """
 Tests for Phase 1: Seed Generation Strategies.
 
-Tests the three main seed generation strategies:
-- QCQAdaptiveSeeding: Quantile-based with quality checks
-- OtsuAdaptiveSeeding: Otsu's method for threshold selection
+Tests the four seed generation strategy variants:
+- QCQScoredAdaptiveSeeding: Adaptive thresholding on scored marker sets
+- QCQAdaptiveSeeding: Per-gene adaptive thresholding with AMF gating
+- OtsuScoredAdaptiveSeeding: Otsu thresholding on scored marker sets
+- OtsuAdaptiveSeeding: Per-gene Otsu thresholding with AMF gating
 - GraphScoreSeeding: GCN-style score propagation
 """
 
 from scAICME import strategies, tl
 
 
-class TestQCQAdaptiveSeeding:
-    """Test suite for QCQAdaptiveSeeding strategy."""
+class TestQCQScoredAdaptiveSeeding:
+    """Test suite for QCQScoredAdaptiveSeeding strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
-        """Test that QCQ strategy runs without error and produces labels."""
-        strategy = strategies.QCQAdaptiveSeeding(markers=marker_dict, quantile=0.9, min_score=0.01)
+        """Test that QCQ scored strategy runs without error and produces labels."""
+        strategy = strategies.QCQScoredAdaptiveSeeding(
+            markers=marker_dict, quantile=0.9, min_score=0.01
+        )
 
         result = tl.label(synthetic_adata, strategy, key_added="qcq_labels")
         labeling_result = result["qcq_labels"]
@@ -42,8 +46,10 @@ class TestQCQAdaptiveSeeding:
         assert len(labeling_result.labels) == synthetic_adata.n_obs
 
     def test_class_a_detection(self, synthetic_adata, marker_dict):
-        """Test that cells with strong Class A markers get labeled."""
-        strategy = strategies.QCQAdaptiveSeeding(markers=marker_dict, quantile=0.8, min_score=0.01)
+        """Test that cells with strong Class A markers get labeled by scored QCQ."""
+        strategy = strategies.QCQScoredAdaptiveSeeding(
+            markers=marker_dict, quantile=0.8, min_score=0.01
+        )
 
         tl.label(synthetic_adata, strategy, key_added="qcq_labels")
 
@@ -57,8 +63,10 @@ class TestQCQAdaptiveSeeding:
         )
 
     def test_output_structure(self, synthetic_adata, marker_dict):
-        """Test that output contains proper columns and types and payloads are valid."""
-        strategy = strategies.QCQAdaptiveSeeding(markers=marker_dict, quantile=0.9, min_score=0.01)
+        """Test that scored QCQ output contains proper columns and payloads."""
+        strategy = strategies.QCQScoredAdaptiveSeeding(
+            markers=marker_dict, quantile=0.9, min_score=0.01
+        )
 
         result = tl.label(synthetic_adata, strategy, key_added="qcq_test")
         labeling_result = result["qcq_test"]
@@ -93,12 +101,14 @@ class TestQCQAdaptiveSeeding:
         assert "fraction_assigned" in labeling_result.uns
 
 
-class TestOtsuAdaptiveSeeding:
-    """Test suite for OtsuAdaptiveSeeding strategy."""
+class TestOtsuScoredAdaptiveSeeding:
+    """Test suite for OtsuScoredAdaptiveSeeding strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
-        """Test that Otsu strategy runs without error and produces labels."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict, bins=256, min_score=0.01)
+        """Test that Otsu scored strategy runs without error and produces labels."""
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict, bins=256, min_score=0.01
+        )
 
         result = tl.label(synthetic_adata, strategy, key_added="otsu_labels")
         labeling_result = result["otsu_labels"]
@@ -125,8 +135,10 @@ class TestOtsuAdaptiveSeeding:
         assert len(labeling_result.labels) == synthetic_adata.n_obs
 
     def test_threshold_calculation(self, synthetic_adata, marker_dict):
-        """Test that Otsu thresholds are properly calculated."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict, bins=256, min_score=0.001)
+        """Test that scored Otsu thresholds are properly calculated."""
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict, bins=256, min_score=0.001
+        )
 
         result = tl.label(synthetic_adata, strategy, key_added="otsu_test")
         result["otsu_test"]
@@ -142,8 +154,10 @@ class TestOtsuAdaptiveSeeding:
             assert class_name in thresholds, f"Threshold missing for {class_name}"
 
     def test_seed_generation(self, synthetic_adata, marker_dict):
-        """Test that high-signal cells are labeled as seeds."""
-        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict, bins=256, min_score=0.01)
+        """Test that high-signal cells are labeled as seeds by scored Otsu."""
+        strategy = strategies.OtsuScoredAdaptiveSeeding(
+            markers=marker_dict, bins=256, min_score=0.01
+        )
 
         tl.label(synthetic_adata, strategy, key_added="otsu_seeds")
 
@@ -151,6 +165,76 @@ class TestOtsuAdaptiveSeeding:
         label = synthetic_adata.obs.loc["cell_0", "otsu_seeds"]
         # Could be Class A or neighboring class due to overlapping genes
         assert label in ["Class A", "Class B"], f"Expected cell_0 to be labeled, got {label}"
+
+
+class TestQCQPerGeneAdaptiveSeeding:
+    """Test suite for QCQAdaptiveSeeding (AMF) strategy."""
+
+    def test_basic_execution(self, synthetic_adata, marker_dict):
+        """Test that QCQ AMF strategy runs without error and produces labels."""
+        strategy = strategies.QCQAdaptiveSeeding(
+            markers=marker_dict, quantile=0.9, min_confidence=0.2
+        )
+
+        result = tl.label(synthetic_adata, strategy, key_added="qcq_amf_labels")
+        labeling_result = result["qcq_amf_labels"]
+
+        assert isinstance(result, dict)
+        assert "qcq_amf_labels" in result
+        assert labeling_result is not None
+        assert len(labeling_result.labels) == synthetic_adata.n_obs
+        assert labeling_result.strategy is strategy
+
+    def test_amf_payload_structure(self, synthetic_adata, marker_dict):
+        """Test that QCQ AMF output includes per-gene thresholds and AMF QC floor."""
+        strategy = strategies.QCQAdaptiveSeeding(
+            markers=marker_dict, quantile=0.9, min_confidence=0.2
+        )
+
+        result = tl.label(synthetic_adata, strategy, key_added="qcq_amf_test")
+        labeling_result = result["qcq_amf_test"]
+
+        assert "thresholds" in labeling_result.uns
+        assert "gene_thresholds" in labeling_result.uns
+        assert "fraction_assigned" in labeling_result.uns
+
+        thresholds = labeling_result.uns["thresholds"]
+        for class_name in marker_dict.keys():
+            assert class_name in thresholds
+            assert thresholds[class_name] == strategy.min_confidence
+
+
+class TestOtsuPerGeneAdaptiveSeeding:
+    """Test suite for OtsuAdaptiveSeeding (AMF) strategy."""
+
+    def test_basic_execution(self, synthetic_adata, marker_dict):
+        """Test that Otsu AMF strategy runs without error and produces labels."""
+        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict, bins=256, min_confidence=0.2)
+
+        result = tl.label(synthetic_adata, strategy, key_added="otsu_amf_labels")
+        labeling_result = result["otsu_amf_labels"]
+
+        assert isinstance(result, dict)
+        assert "otsu_amf_labels" in result
+        assert labeling_result is not None
+        assert len(labeling_result.labels) == synthetic_adata.n_obs
+        assert labeling_result.strategy is strategy
+
+    def test_amf_payload_structure(self, synthetic_adata, marker_dict):
+        """Test that Otsu AMF output includes per-gene thresholds and AMF QC floor."""
+        strategy = strategies.OtsuAdaptiveSeeding(markers=marker_dict, bins=256, min_confidence=0.2)
+
+        result = tl.label(synthetic_adata, strategy, key_added="otsu_amf_test")
+        labeling_result = result["otsu_amf_test"]
+
+        assert "thresholds" in labeling_result.uns
+        assert "gene_thresholds" in labeling_result.uns
+        assert "fraction_assigned" in labeling_result.uns
+
+        thresholds = labeling_result.uns["thresholds"]
+        for class_name in marker_dict.keys():
+            assert class_name in thresholds
+            assert thresholds[class_name] == strategy.min_confidence
 
 
 class TestGraphScoreSeeding:

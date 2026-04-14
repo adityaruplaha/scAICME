@@ -85,9 +85,7 @@ class SVMPropagation(BaseMLPropagation):
             probs = clf.predict_proba(X)
             max_probs = probs.max(axis=1)
             obs["confidence"] = pd.Series(max_probs, index=adata.obs_names)
-            obsm["probabilities"] = pd.DataFrame(
-                probs, index=adata.obs_names, columns=clf.classes_
-            )
+            obsm["probabilities"] = pd.DataFrame(probs, index=adata.obs_names, columns=clf.classes_)
 
         return LabelingResult(
             adata=adata,
