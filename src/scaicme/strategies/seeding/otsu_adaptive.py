@@ -1,13 +1,14 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 
-from ..base import BaseLabelingStrategy, LabelingResult
+from ..base import LabelingResult
+from .base import BaseSeedingStrategy
 
 
-class OtsuAdaptiveSeeding(BaseLabelingStrategy):
+class OtsuAdaptiveSeeding(BaseSeedingStrategy):
     """
     Otsu's Per-Gene Adaptive Thresholding for Seed Generation.
 
@@ -16,7 +17,8 @@ class OtsuAdaptiveSeeding(BaseLabelingStrategy):
 
     A cell is assigned a label if:
     1. Its active marker fraction for a cell type exceeds a hard minimum confidence value.
-    2. It has the highest score among all qualifying types (winner-takes-all).
+    2. It has the highest score among all qualifying types (winner-takes-all), or falls within
+       the allocated quota when `target_frac` is provided.
 
     Parameters
     ----------
@@ -29,6 +31,13 @@ class OtsuAdaptiveSeeding(BaseLabelingStrategy):
         Absolute minimum active marker fraction required to be considered.
     use_raw : bool, default True
         Whether to calculate thresholds and active marker fractions on `adata.raw` if present.
+    target_frac : float | None, default None
+        Fraction of total cells in `adata` to assign labels across qualifying cell types.
+    min_cells_per_type : int | None, default None
+        Minimum guaranteed number of seed candidates allocated per qualifying cluster when `target_frac`
+        is specified.
+    min_score : float | None, default None
+        Absolute minimum score threshold required for eligibility during label selection.
     """
 
     def __init__(
@@ -37,12 +46,21 @@ class OtsuAdaptiveSeeding(BaseLabelingStrategy):
         bins: int = 256,
         min_confidence: float = 0.05,
         use_raw: bool = True,
-        **kwargs,
-    ):
-        self.markers = markers
+        target_frac: float | None = None,
+        min_cells_per_type: int | None = None,
+        min_score: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            markers=markers,
+            target_frac=target_frac,
+            min_cells_per_type=min_cells_per_type,
+            min_score=min_score,
+            use_raw=use_raw,
+            **kwargs,
+        )
         self.bins = bins
         self.min_confidence = min_confidence
-        self.use_raw = use_raw
 
     @property
     def name(self) -> str:
@@ -119,30 +137,10 @@ class OtsuAdaptiveSeeding(BaseLabelingStrategy):
         # 2. Determine Thresholds (QC floor on the active-marker fraction).
         thresholds = dict.fromkeys(scores_df.columns, self.min_confidence)
 
-        # 3. Assign Labels
-        final_labels = pd.Series("unknown", index=adata.obs_names)
-
-        # Identify candidate cells (True if active-marker fraction clears the floor).
-        pass_mask = pd.DataFrame(False, index=scores_df.index, columns=scores_df.columns)
-        for col, thresh in thresholds.items():
-            pass_mask[col] = scores_df[col] >= thresh
-
-        # For cells passing at least one threshold, pick the max score.
-        has_match = pass_mask.any(axis=1)
-        best_match = scores_df.idxmax(axis=1)
-
-        final_labels[has_match] = best_match[has_match]
-
-        # 4. Return Rich Result
-        return LabelingResult(
+        # 3. Assign Labels via centralized BaseSeedingStrategy method
+        return self._assign_labels_from_scores(
             adata=adata,
-            strategy=self,
-            labels=final_labels,
-            obs={"max_score": scores_df.max(axis=1), "is_confident": has_match},
-            obsm={"scores": scores_df},
-            uns={
-                "thresholds": thresholds,
-                "gene_thresholds": gene_thresholds,
-                "fraction_assigned": float(has_match.mean()),
-            },
+            scores_df=scores_df,
+            thresholds=thresholds,
+            extra_uns={"gene_thresholds": gene_thresholds},
         )

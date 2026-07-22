@@ -494,3 +494,90 @@ class TestNearestCentroidPropagation:
             tl.label(
                 synthetic_adata_with_multi_class_seeds, strategy, key_added="centroid_obsm_error"
             )
+
+
+class TestKMeansPropagation:
+    """Test suite for KMeansPropagation strategy."""
+
+    def test_basic_execution(self, synthetic_adata_with_seeds):
+        """Test that KMeans propagation runs and assigns labels correctly."""
+        strategy = strategies.KMeansPropagation(
+            seed_key="seed_labels",
+            obsm_key="X_pca",
+            n_clusters=2,
+            random_state=42,
+        )
+        result = tl.label(synthetic_adata_with_seeds, strategy, key_added="kmeans_prop")
+        assert "kmeans_prop" in result
+        assert "kmeans_prop" in synthetic_adata_with_seeds.obs
+        assert "kmeans_prop_cluster_distances" in synthetic_adata_with_seeds.obsm
+        assert "kmeans_prop_uns" in synthetic_adata_with_seeds.uns
+        assert "cluster_centers" in synthetic_adata_with_seeds.uns["kmeans_prop_uns"]
+
+    def test_seeds_preserved(self, synthetic_adata_with_seeds):
+        """Test that seed cells keep their original labels when keep_seeds=True."""
+        strategy = strategies.KMeansPropagation(
+            seed_key="seed_labels",
+            obsm_key="X_pca",
+            keep_seeds=True,
+            n_clusters=2,
+            random_state=42,
+        )
+        tl.label(synthetic_adata_with_seeds, strategy, key_added="kmeans_seeds")
+        for i in range(6):
+            assert synthetic_adata_with_seeds.obs.loc[f"cell_{i}", "kmeans_seeds"] == "Class A"
+        for i in range(125, 131):
+            assert synthetic_adata_with_seeds.obs.loc[f"cell_{i}", "kmeans_seeds"] == "Class B"
+
+
+class TestPropagationParameters:
+    """Test suite for shared propagation parameters across BaseMLPropagation."""
+
+    def test_min_conf_filtering(self, synthetic_adata_with_seeds):
+        """Test that predictions with confidence below min_conf are set to unknown."""
+        # Set a very high min_conf so some or all non-seed cells get filtered to unknown
+        strategy = strategies.SVMPropagation(
+            seed_key="seed_labels",
+            obsm_key="X_pca",
+            min_conf=0.9999,
+            keep_seeds=True,
+            probability=True,
+        )
+        tl.label(synthetic_adata_with_seeds, strategy, key_added="svm_high_conf")
+        labels = synthetic_adata_with_seeds.obs["svm_high_conf"]
+        # Some non-seed cells should be filtered to unknown
+        assert "unknown" in labels.values
+
+    def test_min_seed_conf_filtering(self, synthetic_adata_with_seeds):
+        """Test that seeds below min_seed_conf are ignored during training."""
+        adata = synthetic_adata_with_seeds.copy()
+        # Add a mock confidence column where Class A seeds have confidence 0.9 and Class B seeds have 0.1
+        conf = pd.Series(0.0, index=adata.obs_names)
+        for i in range(6):
+            conf.loc[f"cell_{i}"] = 0.9
+        for i in range(125, 131):
+            conf.loc[f"cell_{i}"] = 0.1
+        adata.obs["seed_conf"] = conf
+
+        strategy = strategies.KNNPropagation(
+            seed_key="seed_labels",
+            obsm_key="X_pca",
+            min_seed_conf=0.5,
+            conf_key="seed_conf",
+            keep_seeds=False,
+        )
+        tl.label(adata, strategy, key_added="knn_filtered_seeds")
+        # Since Class B seeds had confidence < 0.5, only Class A seeds were trained on
+        assert (adata.obs["knn_filtered_seeds"] == "Class A").all()
+
+    def test_max_pcs_slicing(self, synthetic_adata_with_seeds):
+        """Test that feature matrix is correctly sliced when max_pcs is set."""
+        strategy = strategies.SVMPropagation(
+            seed_key="seed_labels",
+            obsm_key="X_pca",
+            max_pcs=2,
+        )
+        # Should run without error on sliced features
+        tl.label(synthetic_adata_with_seeds, strategy, key_added="svm_max_pcs")
+        assert "svm_max_pcs" in synthetic_adata_with_seeds.obs
+

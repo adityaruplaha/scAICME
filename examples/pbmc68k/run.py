@@ -1,4 +1,4 @@
-"""EXAMPLE: Annotating the PBMC3k dataset"""
+"""EXAMPLE: Annotating the PBMC 68k dataset using scAICME in exact parity with notebook."""
 
 import os
 import warnings
@@ -12,18 +12,18 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 import scAICME as icme
 
-# Minimum genes detected per cell to keep obvious low-quality droplets.
+# Minimum genes detected per cell and minimum cells per gene
 MIN_GENES_TO_RETAIN = 200
-# Minimum number of cells a gene must appear in to retain it.
 MIN_CELLS_PER_GENE = 3
-# High-end cutoffs are set by percentiles to trim extreme outliers.
+
+# High-end cutoffs are set by percentiles to trim extreme outliers
 QC_PERCENTILES = {
     "umi_hi": 99.5,
     "genes_hi": 99.5,
     "mito_hi": 95.0,
 }
-# Mitochondrial fraction ceiling; acts as a floor on the dynamic cutoff.
-MITO_FLOOR = 20.0  # = 20% mitochondrial reads, a common conservative threshold for human PBMCs.
+# Mitochondrial fraction ceiling; acts as a floor on the dynamic cutoff
+MITO_FLOOR = 20.0
 
 BASELINE_PLOT_KEYS = [
     "leiden_res0.2",
@@ -33,13 +33,11 @@ BASELINE_PLOT_KEYS = [
     "leiden_res1.0",
 ]
 SAVE_OUTPUTS = True
-OUTPUT_DIR = Path("examples/pbmc3k/outputs")
+OUTPUT_DIR = Path("examples/pbmc68k/outputs")
 FIGURE_FORMAT = "png"
 
-# Unified color palette for all cell types and labels.
-# "unknown" is assigned a neutral gray (appears hollow when edge-colored).
+# Unified color palette across cell types and labels
 UNIFIED_PALETTE = {
-    # PBMC cell types
     "CD8+/CD45RA+ Naive Cytotoxic": "#1f77b4",
     "CD4+/CD25 T Reg": "#ff7f0e",
     "CD8+ Cytotoxic T": "#2ca02c",
@@ -51,18 +49,13 @@ UNIFIED_PALETTE = {
     "Dendritic": "#bcbd22",
     "CD34+": "#17becf",
     "CD4+ T Helper2": "#aec7e8",
-    # Unknown/unlabeled
     "unknown": "#cccccc",
-    # Boolean fields (from is_confident, etc.)
     "True": "#2ca02c",
     "False": "#d62728",
 }
 
-# Cell type marker genes for seeding
+# Cell type marker genes for seeding PBMC 68k
 PBMC_MARKERS = {
-    # -------------------------------------------------
-    # CD8+/CD45RA+ Naive Cytotoxic (naive CD8 T)
-    # -------------------------------------------------
     "CD8+/CD45RA+ Naive Cytotoxic": [
         "CD3D",
         "CD3E",
@@ -75,11 +68,8 @@ PBMC_MARKERS = {
         "LTB",
         "IL7R",
         "MAL",
-        "LST1",  # (optional; remove LST1 if you see myeloid leakage)
+        "LST1",
     ],
-    # -------------------------------------------------
-    # CD4+/CD25 T Reg (Treg)
-    # -------------------------------------------------
     "CD4+/CD25 T Reg": [
         "CD3D",
         "CD3E",
@@ -94,13 +84,9 @@ PBMC_MARKERS = {
         "CCR7",
         "LTB",
     ],
-    # -------------------------------------------------
-    # CD8+ Cytotoxic T
-    # -------------------------------------------------
     "CD8+ Cytotoxic T": [
         "CD3D",
         "CD3E",
-        "TRAC",
         "CD8A",
         "CD8B",
         "NKG7",
@@ -112,9 +98,6 @@ PBMC_MARKERS = {
         "KLRD1",
         "CCL5",
     ],
-    # -------------------------------------------------
-    # CD56+ NK
-    # -------------------------------------------------
     "CD56+ NK": [
         "NKG7",
         "GNLY",
@@ -124,13 +107,9 @@ PBMC_MARKERS = {
         "CTSW",
         "KLRD1",
         "FCGR3A",
-        "TRDC",  # optional (rare)
         "XCL1",
         "XCL2",
     ],
-    # -------------------------------------------------
-    # CD19+ B
-    # -------------------------------------------------
     "CD19+ B": [
         "MS4A1",
         "CD79A",
@@ -142,11 +121,8 @@ PBMC_MARKERS = {
         "CD19",
         "BANK1",
         "CD22",
-        "CD83",  # activation sometimes
+        "CD83",
     ],
-    # -------------------------------------------------
-    # CD14+ Monocyte (classical monocytes)
-    # -------------------------------------------------
     "CD14+ Monocyte": [
         "LYZ",
         "S100A8",
@@ -161,9 +137,6 @@ PBMC_MARKERS = {
         "MNDA",
         "IL1B",
     ],
-    # -------------------------------------------------
-    # CD4+/CD45RO+ Memory
-    # -------------------------------------------------
     "CD4+/CD45RO+ Memory": [
         "CD3D",
         "CD3E",
@@ -171,16 +144,13 @@ PBMC_MARKERS = {
         "CD4",
         "IL7R",
         "LTB",
-        "CCR7",  # central memory
+        "CCR7",
         "MAL",
         "NOSIP",
         "TCF7",
-        "LEF1",  # may be lower than naive
+        "LEF1",
         "CXCR4",
     ],
-    # -------------------------------------------------
-    # CD4+/CD45RA+/CD25- Naive T (naive CD4)
-    # -------------------------------------------------
     "CD4+/CD45RA+/CD25- Naive T": [
         "CD3D",
         "CD3E",
@@ -193,48 +163,36 @@ PBMC_MARKERS = {
         "LTB",
         "MAL",
         "NOSIP",
-        "LST1",  # optional; remove if contaminating monocytes
+        "LST1",
     ],
-    # -------------------------------------------------
-    # Dendritic (cDC / pDC mixed depending on dataset)
-    # -------------------------------------------------
     "Dendritic": [
         "FCER1A",
         "CD1C",
-        "CLEC10A",  # cDC2
+        "CLEC10A",
         "ITGAX",
-        "LILRA4",  # ITGAX general DC; LILRA4 pDC
-        "GZMB",  # pDC hallmark (often)
+        "LILRA4",
+        "GZMB",
         "HLA-DRA",
         "HLA-DRB1",
         "IRF7",
     ],
-    # -------------------------------------------------
-    # CD34+ (HSPC / progenitors)
-    # -------------------------------------------------
     "CD34+": [
         "CD34",
         "SPINK2",
         "GATA2",
-        "MPO",  # may indicate myeloid progenitors
-        "HBB",  # remove if RBC contamination
+        "MPO",
+        "HBB",
         "TYMP",
         "MEIS1",
-        "AVP",  # optional depending on platform
+        "AVP",
     ],
-    # -------------------------------------------------
-    # CD4+ T Helper2 (rare; dataset has 19 cells)
-    # -------------------------------------------------
     "CD4+ T Helper2": [
         "CD3D",
         "CD3E",
-        "TRAC",
         "CD4",
         "IL7R",
         "GATA3",
         "IL4",
-        "IL5",
-        "IL13",
         "CCR4",
         "CCR6",
         "ICOS",
@@ -243,18 +201,16 @@ PBMC_MARKERS = {
 
 
 def main() -> None:
-    """Run the PBMC3k preprocessing example."""
-    adata = preprocess_pbmc3k()
+    """Run the PBMC 68k annotation and evaluation pipeline."""
+    adata = preprocess_pbmc68k()
     run_icme_pipelines(adata)
 
 
 def add_qc_gene_sets(adata: sc.AnnData) -> None:
     """Annotate mitochondrial, ribosomal, and hemoglobin gene flags."""
     vn_up = adata.var_names.str.upper()
-    # Human and mouse 'mt-' both become 'MT-' after uppercasing.
     adata.var["mt"] = vn_up.str.startswith("MT-")
     adata.var["ribo"] = vn_up.str.startswith(("RPS", "RPL", "MRPS", "MRPL"))
-    # Hemoglobin genes mark ambient RNA or erythrocyte contamination.
     adata.var["hb"] = adata.var_names.str.match(r"^(HB[ABEDM][A-Z0-9]*)", case=False)
 
 
@@ -271,10 +227,8 @@ def compute_qc_metrics(adata: sc.AnnData) -> None:
 
 def derive_thresholds(adata: sc.AnnData) -> tuple[float, float, float]:
     """Return data-driven thresholds for UMI, gene counts, and mito fraction."""
-    # Keep the bulk while removing extreme high-count and high-gene outliers.
     umi_hi = np.percentile(adata.obs["total_counts"], QC_PERCENTILES["umi_hi"])
     genes_hi = np.percentile(adata.obs["n_genes_by_counts"], QC_PERCENTILES["genes_hi"])
-    # Use a percentile-based mito cutoff, but never below a conservative floor.
     mito_hi = max(
         MITO_FLOOR,
         np.percentile(adata.obs["pct_counts_mt"], QC_PERCENTILES["mito_hi"]),
@@ -284,7 +238,6 @@ def derive_thresholds(adata: sc.AnnData) -> tuple[float, float, float]:
 
 def filter_cells(adata: sc.AnnData, umi_hi: float, genes_hi: float, mito_hi: float) -> sc.AnnData:
     """Filter cells by gene counts, UMI counts, and mitochondrial fraction."""
-    # Combine gene/UMI/mito filters to remove low-quality and outlier cells.
     keep_cells = (
         (adata.obs["n_genes_by_counts"] >= MIN_GENES_TO_RETAIN)
         & (adata.obs["n_genes_by_counts"] <= genes_hi)
@@ -294,14 +247,51 @@ def filter_cells(adata: sc.AnnData, umi_hi: float, genes_hi: float, mito_hi: flo
     return adata[keep_cells].copy()
 
 
-def preprocess_pbmc3k() -> sc.AnnData:
-    """Load PBMC3k and run QC filtering plus normalization."""
-    adata = sc.datasets.pbmc3k()
+def preprocess_pbmc68k() -> sc.AnnData:
+    """Load PBMC 68k and run QC filtering plus normalization."""
+    candidates = [
+        Path("/bulk/PBMC Dataset/pbmc68k_10x/filtered_matrices_mex/hg19"),
+        Path("pbmc68k_10x/filtered_matrices_mex/hg19"),
+        Path.home() / "pbmc68k_10x/filtered_matrices_mex/hg19",
+    ]
+    mtx_dir = next((p for p in candidates if p.exists()), None)
+    if not mtx_dir:
+        raise FileNotFoundError(
+            f"PBMC 68k matrix directory not found in candidate paths: {candidates}"
+        )
+
+    print(f"Loading PBMC 68k from {mtx_dir}...")
+    adata = sc.read_10x_mtx(mtx_dir, var_names="gene_symbols", cache=True)
+    adata.var_names_make_unique()
+    adata.obs_names_make_unique()
+
+    # Attach annotations if available
+    annot_candidates = [
+        mtx_dir / "pbmc_annot.csv",
+        Path("pbmc68k_10x/filtered_matrices_mex/hg19/pbmc_annot.csv"),
+    ]
+    csv_path = next((p for p in annot_candidates if p.exists()), None)
+    if csv_path:
+        df = pd.read_csv(csv_path)
+        if df.shape[1] == 1:
+            if not df.columns[0] or str(df.columns[0]).lower().startswith("unnamed"):
+                df.columns = ["org_annot"]
+        for col in df.columns:
+            safe_col = str(col).strip() or "org_annot"
+            if safe_col in adata.obs.columns:
+                safe_col = f"{safe_col}_csv"
+            adata.obs[safe_col] = pd.Categorical(df[col].astype(str).values)
+        print(f"Attached annotations from {csv_path}: {list(df.columns)}")
+
+        # Rename the annotation column to pseudo_cell_type in parity with notebook
+        if "pbmcannot" in adata.obs.columns:
+            adata.obs = adata.obs.rename(columns={"pbmcannot": "pseudo_cell_type"})
+        elif "pbmcannot_csv" in adata.obs.columns:
+            adata.obs = adata.obs.rename(columns={"pbmcannot_csv": "pseudo_cell_type"})
 
     print(f"START  | cells={adata.n_obs:,}  genes={adata.n_vars:,}")
     adata.var_names = adata.var_names.astype(str)
-    adata.var_names_make_unique()  # avoids duplicate symbol problems in downstream tools
-    adata.obs_names_make_unique()
+    adata.var_names_make_unique()
 
     add_qc_gene_sets(adata)
     compute_qc_metrics(adata)
@@ -310,8 +300,8 @@ def preprocess_pbmc3k() -> sc.AnnData:
 
     umi_hi, genes_hi, mito_hi = derive_thresholds(adata)
     print(
-        "Thresholds -> min_genes="
-        f"{MIN_GENES_TO_RETAIN}, umi_hi~{umi_hi:.0f}, genes_hi~{genes_hi:.0f}, mito_hi~{mito_hi:.1f}%"
+        f"Thresholds -> min_genes={MIN_GENES_TO_RETAIN}, umi_hi~{umi_hi:.0f}, "
+        f"genes_hi~{genes_hi:.0f}, mito_hi~{mito_hi:.1f}%"
     )
 
     before = adata.n_obs
@@ -322,7 +312,6 @@ def preprocess_pbmc3k() -> sc.AnnData:
     sc.pp.filter_genes(adata, min_cells=MIN_CELLS_PER_GENE)
     print(f"GENE FILTER | kept {adata.n_vars:,}/{before_g:,} (>= {MIN_CELLS_PER_GENE} cells)")
 
-    # Library size normalization, then log-transform for downstream analysis.
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
     adata.raw = adata
@@ -332,24 +321,42 @@ def preprocess_pbmc3k() -> sc.AnnData:
 
 
 def prepare_features(adata: sc.AnnData, n_pcs: int = 50) -> sc.AnnData:
-    """Compute PCA and neighbors for downstream SSA strategies."""
+    """Compute highly variable genes, PCA, and neighborhood graph for downstream SSA strategies."""
     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
     adata = adata[:, adata.var["highly_variable"]].copy()
     sc.pp.scale(adata, max_value=10)
     sc.tl.pca(adata, n_comps=n_pcs, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=n_pcs)
+    sc.pp.neighbors(adata, n_neighbors=50, n_pcs=n_pcs)
     return adata
 
 
 def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
-    """Run seeding, propagation from each seed, per-seed consensus, and final consensus."""
-    adata = prepare_features(adata)
+    """Run seeding, smoothing, propagation, and consensus voting on PBMC 68k."""
+    adata = prepare_features(adata, n_pcs=50)
+
+    # For PBMC 68k (~68k cells), 0.1% min_cells_per_type is ~68 cells
+    min_cells_per_type = max(10, int(round(0.001 * adata.n_obs)))
+    print(f"\nUsing min_cells_per_type = {min_cells_per_type} for PBMC 68k seeding strategies.")
 
     # ========== Seed Generation ==========
     base_seed_strategies = {
-        "qcq_adaptive": icme.strategies.QCQAdaptiveSeeding(markers=PBMC_MARKERS),
-        "otsu_scored_adaptive": icme.strategies.OtsuScoredAdaptiveSeeding(markers=PBMC_MARKERS),
-        "otsu_adaptive": icme.strategies.OtsuAdaptiveSeeding(markers=PBMC_MARKERS),
+        "qcq_adaptive": icme.strategies.QCQAdaptiveSeeding(
+            markers=PBMC_MARKERS,
+            target_frac=0.6,
+            min_cells_per_type=min_cells_per_type,
+            min_score=0.2,
+        ),
+        "otsu_scored_adaptive": icme.strategies.OtsuScoredAdaptiveSeeding(
+            markers=PBMC_MARKERS,
+            target_frac=0.6,
+            min_cells_per_type=min_cells_per_type,
+            min_score=0.2,
+        ),
+        "otsu_adaptive": icme.strategies.OtsuAdaptiveSeeding(
+            markers=PBMC_MARKERS,
+            target_frac=0.6,
+            min_cells_per_type=min_cells_per_type,
+        ),
     }
 
     smoothened_seed_strategies = {}
@@ -358,29 +365,77 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
             markers=PBMC_MARKERS,
             initial_scores_key=f"{base_name}_scores",
             min_confidence=0.6,
-            min_cells_cluster=3,
+            min_cells_cluster=30,
             weight_concentration_prior=0.01,
+            per_gene_pos_quantile=0.70,
+            min_cluster_size_post_hoc=min_cells_per_type,
         )
         smoothened_seed_strategies[f"{base_name}_gcn"] = icme.strategies.GCNSmoothing(
             markers=PBMC_MARKERS,
             initial_scores_key=f"{base_name}_scores",
+            temperature=0.1,
+            alpha=0.5,
+            tol=1e-4,
+            min_cells_floor=30,
         )
 
-    # Run base seed strategies first so their `obsm["scores"]` matrices exist.
+    print("\nRunning base seeding strategies...")
     seed_results = icme.tl.label(adata, strategies=base_seed_strategies, n_jobs=4)
-    # Run smoothened variants after the base scores are available.
+    print("Running smoothened seeding strategies...")
     seed_results.update(icme.tl.label(adata, strategies=smoothened_seed_strategies, n_jobs=4))
 
-    # Print seed counts before propagation
     compute_labeling_counts_matrix(adata, seed_results)
 
-    # ========== Propagation ==========
+    # ========== Propagation (Exact Parity with Notebook) ==========
     seed_names = list(seed_results.keys())
     propagation_factories = [
-        lambda seed_key: icme.strategies.KNNPropagation(seed_key=seed_key),
-        lambda seed_key: icme.strategies.RandomForestPropagation(seed_key=seed_key, random_state=0),
-        lambda seed_key: icme.strategies.NearestCentroidPropagation(seed_key=seed_key),
-        lambda seed_key: icme.strategies.SVMPropagation(seed_key=seed_key),
+        lambda seed_key: icme.strategies.KNNPropagation(
+            seed_key=seed_key,
+            n_neighbors=9,
+            weights="distance",
+            min_seed_conf=0.30,
+            min_conf=0.55,
+            max_pcs=30,
+        ),
+        lambda seed_key: icme.strategies.RandomForestPropagation(
+            seed_key=seed_key,
+            n_estimators=500,
+            max_depth=18,
+            min_samples_leaf=5,
+            min_seed_conf=0.30,
+            min_conf=0.55,
+            max_pcs=30,
+            random_state=42,
+        ),
+        lambda seed_key: icme.strategies.SVMPropagation(
+            seed_key=seed_key,
+            c=2.0,
+            gamma="scale",
+            min_seed_conf=0.30,
+            min_conf=0.60,
+            max_pcs=30,
+            scale_features=True,
+        ),
+        lambda seed_key: icme.strategies.NeuralNetworkPropagation(
+            seed_key=seed_key,
+            hidden_layer_sizes=(128, 64),
+            alpha=1e-3,
+            max_iter=400,
+            early_stopping=True,
+            validation_fraction=0.1,
+            min_seed_conf=0.30,
+            min_conf=0.60,
+            max_pcs=30,
+            random_state=42,
+        ),
+        lambda seed_key: icme.strategies.KMeansPropagation(
+            seed_key=seed_key,
+            n_clusters=30,
+            scale_features=False,
+            min_seed_conf=0.30,
+            max_pcs=30,
+            random_state=42,
+        ),
     ]
     all_propagation_strategies = {}
     seed_abbr_to_names = {}
@@ -389,7 +444,6 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
     for seed_name in seed_names:
         seed_abbr = seed_name.removeprefix("seeds_")
         seed_abbr_to_names[seed_abbr] = seed_name
-
         seed_prop_keys[seed_abbr] = []
         for factory in propagation_factories:
             strategy = factory(seed_name)
@@ -397,7 +451,7 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
             all_propagation_strategies[key] = strategy
             seed_prop_keys[seed_abbr].append(key)
 
-    # Execute all propagations in parallel
+    print(f"\nExecuting {len(all_propagation_strategies)} propagation strategies across seeds...")
     max_jobs = os.cpu_count() or 1
     icme.tl.label(
         adata,
@@ -422,15 +476,6 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
     consensus_tasks = {}
     for seed_abbr in seed_abbr_to_names.keys():
         prop_keys = [key for key in seed_prop_keys[seed_abbr] if key in existing_propagation_keys]
-        missing_seed_prop_keys = [
-            key for key in seed_prop_keys[seed_abbr] if key not in existing_propagation_keys
-        ]
-        if missing_seed_prop_keys:
-            warnings.warn(
-                f"Seed '{seed_abbr}' is missing propagation outputs and will be voted on only with "
-                f"the available labels: {', '.join(sorted(missing_seed_prop_keys))}",
-                stacklevel=2,
-            )
         if not prop_keys:
             warnings.warn(
                 f"Skipping consensus for seed '{seed_abbr}' because no propagation labels were created.",
@@ -439,12 +484,12 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
             continue
         consensus_key = f"consensus_{seed_abbr}"
         consensus_tasks[consensus_key] = icme.strategies.ConsensusVoting(
-            keys=prop_keys, majority_fraction=0.66
+            keys=prop_keys, majority_fraction=0.1
         )
 
-    # Execute all per-seed consensus votes in parallel
     seed_consensus_keys = list(consensus_tasks.keys())
     if consensus_tasks:
+        print("\nComputing per-seed consensus labels...")
         icme.tl.label(adata, strategies=consensus_tasks, n_jobs=4)
     else:
         warnings.warn(
@@ -454,8 +499,9 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
 
     # ========== Final Consensus ==========
     if seed_consensus_keys:
+        print("Computing final consensus across all seeds...")
         final_consensus = icme.strategies.ConsensusVoting(
-            keys=seed_consensus_keys, majority_fraction=0.66
+            keys=seed_consensus_keys, majority_fraction=0.1
         )
         icme.tl.label(adata, strategies=final_consensus, key_added="labels_final")
     else:
@@ -471,6 +517,7 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
     if "labels_final" in adata.obs:
         prop_plot_keys.append("labels_final")
 
+    print("\nRunning clustering baselines...")
     run_baselines(adata)
     ablation_cols = [
         col
@@ -492,18 +539,12 @@ def run_icme_pipelines(adata: sc.AnnData) -> sc.AnnData:
 
 
 def compute_labeling_counts_matrix(adata: sc.AnnData, seed_results: dict) -> None:
-    """Print seed labeling statistics.
-
-    Args:
-        adata: AnnData object with labeled cells in obs
-        seed_results: Dict returned from icme.tl.label() with column keys as keys
-    """
+    """Print seed labeling statistics."""
     print("\n" + "=" * 70)
     print("SEED LABELING STATISTICS")
     print("=" * 70)
 
     n_cells = adata.n_obs
-
     print("\nSeed Counts by Strategy:")
     seed_data = []
     for seed_col in seed_results.keys():
@@ -516,34 +557,24 @@ def compute_labeling_counts_matrix(adata: sc.AnnData, seed_results: dict) -> Non
     seed_df = pd.DataFrame(seed_data).set_index("strategy").sort_index()
     print(seed_df.to_string())
 
-    # ========== Save ==========
     if SAVE_OUTPUTS:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(seed_data).to_csv(OUTPUT_DIR / "seed_counts.csv", index=False)
         print(f"\nStatistics saved to {OUTPUT_DIR}/")
-
     print("=" * 70)
 
 
 def run_baselines(adata: sc.AnnData) -> None:
     """Compute canonical clustering baselines for comparison."""
-    # Leiden with multiple resolutions for sensitivity analysis.
     for res in [0.2, 0.4, 0.6, 0.8, 1.0]:
         sc.tl.leiden(
             adata, key_added=f"leiden_res{res}", resolution=res, flavor="igraph", n_iterations=2
         )
-
     sc.tl.tsne(adata, n_pcs=50)
 
 
 def compute_ablation_metrics(adata: sc.AnnData, label_columns: list[str]) -> None:
-    """Compute pairwise ARI and NMI metrics between all label predictions.
-
-    Creates symmetric matrices showing agreement between:
-    - Per-seed consensus (consensus_*)
-    - Final consensus (labels_final)
-    - Leiden baselines (leiden_res*)
-    """
+    """Compute pairwise ARI and NMI metrics between all label predictions."""
     if "labels_final" not in adata.obs:
         print("No final consensus labels found; skipping ablation metrics.")
         return
@@ -552,10 +583,7 @@ def compute_ablation_metrics(adata: sc.AnnData, label_columns: list[str]) -> Non
     print("ABLATION METRICS: Pairwise Agreement")
     print("=" * 70)
 
-    # ========== Collect Label Columns ==========
-    # Group labels: per-seed consensus, final, and baselines
     all_label_cols = [col for col in label_columns if col in adata.obs.columns]
-
     if not all_label_cols:
         print("No label columns found for comparison.")
         return
@@ -564,14 +592,10 @@ def compute_ablation_metrics(adata: sc.AnnData, label_columns: list[str]) -> Non
     ari_matrix = np.zeros((n_methods, n_methods))
     nmi_matrix = np.zeros((n_methods, n_methods))
 
-    # ========== Compute Pairwise Metrics ==========
-    # Only compute valid pairs (cells labeled in both methods)
     for i, col1 in enumerate(all_label_cols):
         for j, col2 in enumerate(all_label_cols):
             labels1 = adata.obs[col1]
             labels2 = adata.obs[col2]
-
-            # Find cells labeled in both methods
             valid = (labels1 != "unknown") & (labels2 != "unknown")
 
             if valid.sum() == 0:
@@ -580,66 +604,38 @@ def compute_ablation_metrics(adata: sc.AnnData, label_columns: list[str]) -> Non
             else:
                 labels1_valid = labels1[valid]
                 labels2_valid = labels2[valid]
-
                 ari_matrix[i, j] = adjusted_rand_score(labels1_valid, labels2_valid)
                 nmi_matrix[i, j] = normalized_mutual_info_score(labels1_valid, labels2_valid)
 
-    # Create DataFrames with method names as indices
     ari_df = pd.DataFrame(ari_matrix, index=all_label_cols, columns=all_label_cols)
     nmi_df = pd.DataFrame(nmi_matrix, index=all_label_cols, columns=all_label_cols)
 
-    # Print results
     print("\n--- Adjusted Rand Index (ARI) Matrix ---")
-    print("(Higher = more similar labeling)")
     print(ari_df.to_string(float_format=lambda x: f"{x:.3f}" if not np.isnan(x) else "nan"))
-
     print("\n--- Normalized Mutual Information (NMI) Matrix ---")
-    print("(Higher = more similar labeling)")
     print(nmi_df.to_string(float_format=lambda x: f"{x:.3f}" if not np.isnan(x) else "nan"))
 
-    # ========== Save Metrics ==========
     if SAVE_OUTPUTS:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
         ari_df.to_csv(OUTPUT_DIR / "ari_matrix.csv")
         nmi_df.to_csv(OUTPUT_DIR / "nmi_matrix.csv")
-
         print(f"\nARI matrix saved to: {OUTPUT_DIR / 'ari_matrix.csv'}")
         print(f"NMI matrix saved to: {OUTPUT_DIR / 'nmi_matrix.csv'}")
-
     print("=" * 70)
 
 
 def _build_legend_handles(color_keys: list[str], adata: sc.AnnData, palette: dict | None) -> dict:
-    """Build legend patches from data categories and colors.
-
-    Args:
-        color_keys: List of obs column names to extract categories from.
-        adata: AnnData object containing the observations.
-        palette: Optional dict mapping category names to colors. If None, uses tab20 colormap.
-
-    Returns:
-        Dict mapping category strings to matplotlib Patch handles.
-
-    Note:
-        Skips numerical columns to preserve their continuous visualization as colormaps.
-    """
+    """Build legend patches from data categories and colors."""
     handles_dict = {}
     for color_key in color_keys:
         if color_key not in adata.obs:
             continue
-
         col_data = adata.obs[color_key]
-
-        # Skip numerical columns; let Scanpy handle their continuous colormaps
         if col_data.dtype in ("float64", "float32", "int64", "int32"):
             continue
-
-        # Only process categorical or string columns
         if hasattr(col_data, "cat"):
             categories = col_data.cat.categories
         else:
-            # For string/object columns, only create legend entries
             categories = sorted(col_data.unique())
 
         for cat in categories:
@@ -648,13 +644,10 @@ def _build_legend_handles(color_keys: list[str], adata: sc.AnnData, palette: dic
                 if palette is not None:
                     color = palette.get(cat_str, "#cccccc")
                 else:
-                    # Use categorical cmap if no palette specified
                     cmap = mpl.colormaps.get_cmap("tab20")
                     idx = list(categories).index(cat)
                     color = cmap(idx % 20)
-
                 handles_dict[cat_str] = mpl.patches.Patch(facecolor=color)
-
     return handles_dict
 
 
@@ -668,29 +661,20 @@ def plot_icme_umaps(
     save_plots: bool = False,
     output_dir: Path | None = None,
 ) -> None:
-    """Plot UMAPs for seeds, propagation outputs, and final consensus labels.
-
-    Uses a unified palette across all plots for consistent coloring.
-    Removes individual subplot legends and adds a single shared legend per figure.
-    """
+    """Plot UMAPs and t-SNEs for seeds, propagation outputs, and final consensus labels."""
     if save_plots:
         plot_dir = output_dir or OUTPUT_DIR
         plot_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use a copy of adata for plotting to avoid modifying the original .obs
     adata_plot = adata[:, :]
     adata_plot.obs = adata.obs.copy()
-
-    # Convert boolean columns to categorical strings for plotting
     for col in adata_plot.obs.columns:
         if adata_plot.obs[col].dtype == bool:
             adata_plot.obs[col] = adata_plot.obs[col].astype(str)
 
     sc.tl.umap(adata_plot)
 
-    # Helper function to save figure with optional consolidated legend
     def plot_and_save(color_keys, title_suffix, palette=UNIFIED_PALETTE, consolidate_legend=True):
-        # When consolidating, suppress individual legends; otherwise use default legend rendering
         fig = sc.pl.umap(
             adata_plot,
             color=color_keys,
@@ -699,18 +683,11 @@ def plot_icme_umaps(
             legend_loc=None if consolidate_legend else "right",
             return_fig=True,
         )
-
-        # Only consolidate legend when comparing subplots with same cell types
         if consolidate_legend:
-            # Remove all individual legends from subplots
             for ax in fig.axes:
                 if ax.get_legend() is not None:
                     ax.get_legend().remove()
-
-            # Build legend from categories and colors
             handles_dict = _build_legend_handles(color_keys, adata_plot, palette)
-
-            # Add single shared legend to the figure
             if handles_dict:
                 fig.legend(
                     handles_dict.values(),
@@ -719,7 +696,6 @@ def plot_icme_umaps(
                     bbox_to_anchor=(1, 0.5),
                     frameon=True,
                 )
-
         if save_plots:
             fig.savefig(
                 OUTPUT_DIR / f"umap{title_suffix}.{FIGURE_FORMAT}",
@@ -741,9 +717,6 @@ def plot_icme_umaps(
         legend_loc="right",
         return_fig=True,
     )
-
-    # Default legends are rendered for each subplot
-
     if save_plots:
         fig.savefig(
             OUTPUT_DIR / f"tsne_baselines.{FIGURE_FORMAT}",

@@ -1,14 +1,15 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
-from ..base import BaseLabelingStrategy, LabelingResult
+from ..base import LabelingResult
+from .base import BaseSeedingStrategy
 
 
-class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
+class OtsuScoredAdaptiveSeeding(BaseSeedingStrategy):
     """
     Otsu's Adaptive Thresholding on Scored Markers for Seed Generation.
 
@@ -16,7 +17,8 @@ class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
 
     A cell is assigned a label if:
     1. Its score for a cell type exceeds the Otsu threshold and the hard minimum score value.
-    2. It has the highest score among all qualifying types (winner-takes-all).
+    2. It has the highest score among all qualifying types (winner-takes-all), or falls within
+       the allocated quota when `target_frac` is provided.
 
     Parameters
     ----------
@@ -29,6 +31,11 @@ class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
         Absolute minimum score required to be considered.
     use_raw : bool, default True
         Whether to calculate scores on `adata.raw` if present.
+    target_frac : float | None, default None
+        Fraction of total cells in `adata` to assign labels across qualifying cell types.
+    min_cells_per_type : int | None, default None
+        Minimum guaranteed number of seed candidates allocated per qualifying cluster when `target_frac`
+        is specified.
     """
 
     def __init__(
@@ -37,12 +44,19 @@ class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
         bins: int = 256,
         min_score: float = 0.05,
         use_raw: bool = True,
-        **kwargs,
-    ):
-        self.markers = markers
+        target_frac: float | None = None,
+        min_cells_per_type: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            markers=markers,
+            target_frac=target_frac,
+            min_cells_per_type=min_cells_per_type,
+            min_score=min_score,
+            use_raw=use_raw,
+            **kwargs,
+        )
         self.bins = bins
-        self.min_score = min_score
-        self.use_raw = use_raw
 
     @property
     def name(self) -> str:
@@ -50,31 +64,25 @@ class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
 
     def _calculate_otsu_threshold(self, vals: np.ndarray) -> float:
         """Pure numpy implementation of Otsu's thresholding."""
-        # Remove NaNs and handle edge cases
         vals = vals[~np.isnan(vals)]
         if len(vals) == 0:
             return 0.0
         if vals.max() == vals.min():
             return float(vals.max())
 
-        # 1. Compute histogram and probabilities
         hist, bin_edges = np.histogram(vals, bins=self.bins)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        # 2. Cumulative weights (probabilities of being in class 1 or 2)
         weight1 = np.cumsum(hist)
         weight2 = np.cumsum(hist[::-1])[::-1]
 
-        # 3. Cumulative means
         mean1 = np.cumsum(hist * bin_centers) / weight1
         mean2 = (np.cumsum((hist * bin_centers)[::-1]) / weight2[::-1])[::-1]
 
-        # 4. Calculate between-class variance
         variance12 = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
         variance12[np.isnan(variance12)] = 0
 
-        # 5. The threshold is the bin center that maximizes the variance
-        idx = np.argmax(variance12)
+        idx = int(np.argmax(variance12))
         return float(bin_centers[idx])
 
     def execute_on(self, adata: AnnData) -> LabelingResult:
@@ -118,26 +126,14 @@ class OtsuScoredAdaptiveSeeding(BaseLabelingStrategy):
         thresholds = {}
         for col in scores_df.columns:
             otsu_val = self._calculate_otsu_threshold(scores_df[col].values)
-            thresholds[col] = max(otsu_val, self.min_score)
+            if self.min_score is not None:
+                thresholds[col] = max(otsu_val, self.min_score)
+            else:
+                thresholds[col] = otsu_val
 
-        # 3. Assign Labels
-        final_labels = pd.Series("unknown", index=adata.obs_names)
-
-        pass_mask = pd.DataFrame(False, index=scores_df.index, columns=scores_df.columns)
-        for col, thresh in thresholds.items():
-            pass_mask[col] = scores_df[col] > thresh
-
-        has_match = pass_mask.any(axis=1)
-        best_match = scores_df.idxmax(axis=1)
-
-        final_labels[has_match] = best_match[has_match]
-
-        # 4. Return Rich Result
-        return LabelingResult(
+        # 3. Assign Labels via centralized BaseSeedingStrategy method
+        return self._assign_labels_from_scores(
             adata=adata,
-            strategy=self,
-            labels=final_labels,
-            obs={"max_score": scores_df.max(axis=1), "is_confident": has_match},
-            obsm={"scores": scores_df},
-            uns={"thresholds": thresholds, "fraction_assigned": float(has_match.mean())},
+            scores_df=scores_df,
+            thresholds=thresholds,
         )

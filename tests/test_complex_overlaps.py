@@ -60,11 +60,9 @@ class TestUbiquitousGenePattern:
         assert isinstance(labeling_result.obs, dict)
         assert len(labeling_result.obs) >= 0
 
-    def test_ubiquitous_graph_score_robustness(
-        self, adata_ubiquitous_shared, marker_dict_ubiquitous
-    ):
-        """GraphScore should leverage neighbor structure despite ubiquitous signal."""
-        strategy = strategies.GraphScoreSeeding(markers=marker_dict_ubiquitous, propagation_steps=3)
+    def test_ubiquitous_gcn_robustness(self, adata_ubiquitous_shared, marker_dict_ubiquitous):
+        """GCN smoothing should leverage neighbor structure despite ubiquitous signal."""
+        strategy = strategies.GCNSmoothing(markers=marker_dict_ubiquitous, propagation_steps=3)
         result = tl.label(adata_ubiquitous_shared, strategy, key_added="graph_labels")
         labeling_result = result["graph_labels"]
 
@@ -84,7 +82,7 @@ class TestUbiquitousGenePattern:
         strategy2 = strategies.OtsuAdaptiveSeeding(markers=marker_dict_ubiquitous)
         tl.label(adata, strategy2, key_added="labels_2")
 
-        strategy3 = strategies.GraphScoreSeeding(markers=marker_dict_ubiquitous)
+        strategy3 = strategies.GCNSmoothing(markers=marker_dict_ubiquitous)
         tl.label(adata, strategy3, key_added="labels_3")
 
         # Consensus voting
@@ -142,13 +140,11 @@ class TestHighlySpecificPattern:
             for label in labeling_result.labels
         )
 
-    def test_highly_specific_graph_score_perfect_case(
+    def test_highly_specific_gcn_perfect_case(
         self, adata_highly_specific, marker_dict_highly_specific
     ):
-        """GraphScore should maintain neighbor structure with clean separation."""
-        strategy = strategies.GraphScoreSeeding(
-            markers=marker_dict_highly_specific, propagation_steps=3
-        )
+        """GCN smoothing should maintain neighbor structure with clean separation."""
+        strategy = strategies.GCNSmoothing(markers=marker_dict_highly_specific, propagation_steps=3)
         result = tl.label(adata_highly_specific, strategy, key_added="graph_labels")
         labeling_result = result["graph_labels"]
 
@@ -168,7 +164,7 @@ class TestHighlySpecificPattern:
         strategy2 = strategies.OtsuAdaptiveSeeding(markers=marker_dict_highly_specific)
         tl.label(adata, strategy2, key_added="labels_2")
 
-        strategy3 = strategies.GraphScoreSeeding(markers=marker_dict_highly_specific)
+        strategy3 = strategies.GCNSmoothing(markers=marker_dict_highly_specific)
         tl.label(adata, strategy3, key_added="labels_3")
 
         strategy_consensus = strategies.ConsensusVoting(
@@ -221,13 +217,11 @@ class TestHierarchicalOverlapPattern:
         assert labeling_result.labels is not None
         assert len(labeling_result.labels) == 1000
 
-    def test_hierarchical_graph_score_tree_structure(
+    def test_hierarchical_gcn_tree_structure(
         self, adata_hierarchical_overlap, marker_dict_hierarchical
     ):
-        """GraphScore should leverage tree structure via neighbors."""
-        strategy = strategies.GraphScoreSeeding(
-            markers=marker_dict_hierarchical, propagation_steps=3
-        )
+        """GCN smoothing should leverage tree structure via neighbors."""
+        strategy = strategies.GCNSmoothing(markers=marker_dict_hierarchical, propagation_steps=3)
         result = tl.label(adata_hierarchical_overlap, strategy, key_added="graph_labels")
         labeling_result = result["graph_labels"]
 
@@ -250,7 +244,7 @@ class TestHierarchicalOverlapPattern:
         strategy2 = strategies.OtsuAdaptiveSeeding(markers=marker_dict_hierarchical)
         tl.label(adata, strategy2, key_added="labels_2")
 
-        strategy3 = strategies.GraphScoreSeeding(markers=marker_dict_hierarchical)
+        strategy3 = strategies.GCNSmoothing(markers=marker_dict_hierarchical)
         tl.label(adata, strategy3, key_added="labels_3")
 
         strategy_consensus = strategies.ConsensusVoting(
@@ -298,13 +292,9 @@ class TestComplexMixedPattern:
         assert labeling_result.labels is not None
         assert len(labeling_result.labels) == 1000
 
-    def test_complex_mixed_graph_score_realistic(
-        self, adata_complex_mixed, marker_dict_complex_mixed
-    ):
-        """GraphScore should leverage spatial information in complex patterns."""
-        strategy = strategies.GraphScoreSeeding(
-            markers=marker_dict_complex_mixed, propagation_steps=3
-        )
+    def test_complex_mixed_gcn_realistic(self, adata_complex_mixed, marker_dict_complex_mixed):
+        """GCN smoothing should leverage spatial information in complex patterns."""
+        strategy = strategies.GCNSmoothing(markers=marker_dict_complex_mixed, propagation_steps=3)
         result = tl.label(adata_complex_mixed, strategy, key_added="graph_labels")
         labeling_result = result["graph_labels"]
 
@@ -323,7 +313,7 @@ class TestComplexMixedPattern:
         strategy2 = strategies.OtsuAdaptiveSeeding(markers=marker_dict_complex_mixed)
         tl.label(adata, strategy2, key_added="labels_2")
 
-        strategy3 = strategies.GraphScoreSeeding(markers=marker_dict_complex_mixed)
+        strategy3 = strategies.GCNSmoothing(markers=marker_dict_complex_mixed)
         tl.label(adata, strategy3, key_added="labels_3")
 
         strategy_consensus = strategies.ConsensusVoting(
@@ -383,7 +373,7 @@ class TestCrossPatternComparison:
             assert labeling_result.labels is not None
             assert len(labeling_result.labels) == 1000
 
-    def test_graph_score_across_all_patterns(
+    def test_gcn_across_all_patterns(
         self,
         adata_ubiquitous_shared,
         marker_dict_ubiquitous,
@@ -394,7 +384,7 @@ class TestCrossPatternComparison:
         adata_complex_mixed,
         marker_dict_complex_mixed,
     ):
-        """GraphScore should work across all patterns."""
+        """GCN smoothing should work across all patterns."""
         patterns = [
             (adata_ubiquitous_shared, marker_dict_ubiquitous),
             (adata_highly_specific, marker_dict_highly_specific),
@@ -402,7 +392,7 @@ class TestCrossPatternComparison:
             (adata_complex_mixed, marker_dict_complex_mixed),
         ]
         for adata, markers in patterns:
-            strategy = strategies.GraphScoreSeeding(markers=markers)
+            strategy = strategies.GCNSmoothing(markers=markers)
             result = tl.label(adata, strategy, key_added="graph_labels")
             labeling_result = result["graph_labels"]
             assert isinstance(labeling_result, LabelingResult)
@@ -446,7 +436,7 @@ class TestDTOValidationAcrossPatterns:
 
     def test_dto_validity_hierarchical(self, adata_hierarchical_overlap, marker_dict_hierarchical):
         """DTO should be complete for hierarchical pattern."""
-        strategy = strategies.GraphScoreSeeding(markers=marker_dict_hierarchical)
+        strategy = strategies.GCNSmoothing(markers=marker_dict_hierarchical)
         result = tl.label(adata_hierarchical_overlap, strategy, key_added="graph_labels")
         labeling_result = result["graph_labels"]
 

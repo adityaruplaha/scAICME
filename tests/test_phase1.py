@@ -6,8 +6,11 @@ Tests the four seed generation strategy variants:
 - QCQAdaptiveSeeding: Per-gene adaptive thresholding with AMF gating
 - OtsuScoredAdaptiveSeeding: Otsu thresholding on scored marker sets
 - OtsuAdaptiveSeeding: Per-gene Otsu thresholding with AMF gating
-- GraphScoreSeeding: GCN-style score propagation
+- GCNSmoothing: GCN-style score propagation
 """
+
+import pandas as pd
+import pytest
 
 from scAICME import strategies, tl
 
@@ -237,12 +240,12 @@ class TestOtsuPerGeneAdaptiveSeeding:
             assert thresholds[class_name] == strategy.min_confidence
 
 
-class TestGraphScoreSeeding:
-    """Test suite for GraphScoreSeeding strategy."""
+class TestGCNSmoothing:
+    """Test suite for GCNSmoothing strategy."""
 
     def test_basic_execution(self, synthetic_adata, marker_dict):
-        """Test that GraphScore strategy runs without error."""
-        strategy = strategies.GraphScoreSeeding(
+        """Test that GCN smoothing runs without error."""
+        strategy = strategies.GCNSmoothing(
             markers=marker_dict,
             alpha=0.8,
             n_iterations=10,
@@ -273,8 +276,8 @@ class TestGraphScoreSeeding:
         assert "graph_labels" in synthetic_adata.obs
 
     def test_propagated_scores_stored(self, synthetic_adata, marker_dict):
-        """Test that diffused scores are stored after graph propagation."""
-        strategy = strategies.GraphScoreSeeding(
+        """Test that diffused scores are stored after GCN propagation."""
+        strategy = strategies.GCNSmoothing(
             markers=marker_dict,
             alpha=0.8,
             n_iterations=10,
@@ -296,7 +299,7 @@ class TestGraphScoreSeeding:
     def test_alpha_parameter_effect(self, synthetic_adata, marker_dict):
         """Test that different alpha values produce different results."""
         # Smaller alpha (more original signal)
-        strategy1 = strategies.GraphScoreSeeding(
+        strategy1 = strategies.GCNSmoothing(
             markers=marker_dict,
             alpha=0.2,
             n_iterations=10,
@@ -305,7 +308,7 @@ class TestGraphScoreSeeding:
         )
 
         # Larger alpha (more neighborhood influence)
-        strategy2 = strategies.GraphScoreSeeding(
+        strategy2 = strategies.GCNSmoothing(
             markers=marker_dict,
             alpha=0.9,
             n_iterations=10,
@@ -330,7 +333,7 @@ class TestGraphScoreSeeding:
 
     def test_seed_confidence(self, synthetic_adata, marker_dict):
         """Test that clear signal cells get labeled."""
-        strategy = strategies.GraphScoreSeeding(
+        strategy = strategies.GCNSmoothing(
             markers=marker_dict, alpha=0.8, n_iterations=10, margin=0.05, min_score=0.0001
         )
 
@@ -342,5 +345,51 @@ class TestGraphScoreSeeding:
 
         # At least some cells should be labeled (not all unknown)
         assert unknown_count < len(all_labels), (
-            "GraphScore should label at least some cells with high signal"
+            "GCN smoothing should label at least some cells with high signal"
         )
+
+    def test_initial_scores_key_uses_precomputed_scores(self, synthetic_adata, marker_dict):
+        """GCN smoothing should reuse a precomputed seed-score matrix when provided."""
+        cell_types = list(marker_dict.keys())
+        seed_scores = pd.DataFrame(
+            {
+                cell_type: [index / 1000.0 for index in range(synthetic_adata.n_obs)]
+                for cell_type in cell_types
+            },
+            index=synthetic_adata.obs_names,
+        )
+        synthetic_adata.obsm["seed_scores_matrix"] = seed_scores.values
+
+        strategy = strategies.GCNSmoothing(
+            markers=marker_dict,
+            initial_scores_key="seed_scores_matrix",
+            alpha=0.8,
+            n_iterations=0,
+            margin=0.0,
+            min_score=-1.0,
+        )
+
+        result = tl.label(synthetic_adata, strategy, key_added="graph_seed_scores")
+        labeling_result = result["graph_seed_scores"]
+
+        assert "initial_scores" in labeling_result.obsm
+        assert "diffused_scores" in labeling_result.obsm
+        pd.testing.assert_frame_equal(labeling_result.obsm["initial_scores"], seed_scores)
+        pd.testing.assert_frame_equal(labeling_result.obsm["diffused_scores"], seed_scores)
+
+    def test_fallback_initial_scoring_is_deprecated(self, synthetic_adata, marker_dict):
+        """GCN smoothing should still work without seed scores, but warn that fallback is deprecated."""
+        strategy = strategies.GCNSmoothing(
+            markers=marker_dict,
+            alpha=0.8,
+            n_iterations=0,
+            margin=0.0,
+            min_score=-1.0,
+        )
+
+        with pytest.warns(DeprecationWarning):
+            result = tl.label(synthetic_adata, strategy, key_added="graph_fallback")
+
+        labeling_result = result["graph_fallback"]
+        assert "initial_scores" in labeling_result.obsm
+        assert "diffused_scores" in labeling_result.obsm

@@ -120,11 +120,11 @@ class TestLabelDispatcher:
 
         assert unknown_count_qcq < len(qcq_labels) or unknown_count_otsu < len(otsu_labels)
 
-    def test_batch_with_graph_score(self, synthetic_adata, marker_dict):
-        """Test batch execution including GraphScorePropagation strategy."""
+    def test_batch_with_gcn(self, synthetic_adata, marker_dict):
+        """Test batch execution including GCNSmoothing strategy."""
         strategies_list = [
             strategies.OtsuScoredAdaptiveSeeding(markers=marker_dict, bins=256, min_score=0.01),
-            strategies.GraphScoreSeeding(
+            strategies.GCNSmoothing(
                 markers=marker_dict,
                 alpha=0.8,
                 n_iterations=10,

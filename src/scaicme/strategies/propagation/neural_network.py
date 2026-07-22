@@ -1,5 +1,6 @@
-from typing import Tuple
+from typing import Any, Tuple
 
+import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.neural_network import MLPClassifier
@@ -39,6 +40,14 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         Whether to use early stopping with a validation split.
     random_state : int | None, default None
         Random seed for reproducibility.
+    min_seed_conf : float, default 0.0
+        Minimum confidence threshold for initial seed cells to be included in training.
+    conf_key : str, default "max_confidence"
+        Key in `adata.obs` holding initial seed confidence scores when `min_seed_conf > 0`.
+    min_conf : float, default 0.0
+        Post-propagation confidence threshold; predictions below this score are set to `unknown_label`.
+    max_pcs : int | None, default None
+        If provided, slices `adata.obsm[obsm_key]` to the top `max_pcs` features.
     """
 
     def __init__(
@@ -55,9 +64,23 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         max_iter: int = 300,
         early_stopping: bool = True,
         random_state: int | None = None,
-        **kwargs,
-    ):
-        super().__init__(seed_key, obsm_key, unknown_label, keep_seeds)
+        min_seed_conf: float = 0.0,
+        conf_key: str = "max_confidence",
+        min_conf: float = 0.0,
+        max_pcs: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            seed_key=seed_key,
+            obsm_key=obsm_key,
+            unknown_label=unknown_label,
+            keep_seeds=keep_seeds,
+            min_seed_conf=min_seed_conf,
+            conf_key=conf_key,
+            min_conf=min_conf,
+            max_pcs=max_pcs,
+            **kwargs,
+        )
         self.hidden_layer_sizes = hidden_layer_sizes
         self.activation = activation
         self.solver = solver
@@ -93,8 +116,7 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         max_probs = probs.max(axis=1)
 
         final_labels = pd.Series(preds, index=adata.obs_names)
-        if self.keep_seeds:
-            final_labels[is_labeled] = y_raw[is_labeled]
+        final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)
 
         return LabelingResult(
             adata=adata,
