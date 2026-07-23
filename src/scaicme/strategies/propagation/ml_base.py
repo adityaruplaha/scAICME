@@ -48,11 +48,23 @@ class BaseMLPropagation(BaseLabelingStrategy, ABC):
         is_labeled = y_raw != self.unknown_label
 
         if self.min_seed_conf > 0.0:
-            if self.conf_key not in adata.obs:
+            actual_conf_key = None
+            candidates = [
+                self.conf_key,
+                f"{self.seed_key}_{self.conf_key}",
+                f"{self.seed_key}_max_confidence",
+                f"{self.seed_key}_max_score",
+                f"{self.seed_key}_margin",
+            ]
+            for candidate in candidates:
+                if candidate in adata.obs:
+                    actual_conf_key = candidate
+                    break
+            if actual_conf_key is None:
                 raise ValueError(
-                    f"Seed confidence key '{self.conf_key}' not found in adata.obs when min_seed_conf > 0."
+                    f"Seed confidence key '{self.conf_key}' (or prefixed candidates) not found in adata.obs when min_seed_conf > 0."
                 )
-            seed_conf = adata.obs[self.conf_key].to_numpy(dtype=float, na_value=0.0)
+            seed_conf = adata.obs[actual_conf_key].to_numpy(dtype=float, na_value=0.0)
             is_labeled = is_labeled & (seed_conf >= self.min_seed_conf)
 
         if not is_labeled.any():

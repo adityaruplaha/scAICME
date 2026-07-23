@@ -675,9 +675,13 @@ def plot_icme_umaps(
     sc.tl.umap(adata_plot)
 
     def plot_and_save(color_keys, title_suffix, palette=UNIFIED_PALETTE, consolidate_legend=True):
+        valid_keys = [k for k in color_keys if k in adata_plot.obs]
+        if not valid_keys:
+            print(f"Skipping UMAP plot '{title_suffix}': no valid keys in adata.obs.")
+            return
         fig = sc.pl.umap(
             adata_plot,
-            color=color_keys,
+            color=valid_keys,
             ncols=2,
             palette=palette,
             legend_loc=None if consolidate_legend else "right",
@@ -687,7 +691,7 @@ def plot_icme_umaps(
             for ax in fig.axes:
                 if ax.get_legend() is not None:
                     ax.get_legend().remove()
-            handles_dict = _build_legend_handles(color_keys, adata_plot, palette)
+            handles_dict = _build_legend_handles(valid_keys, adata_plot, palette)
             if handles_dict:
                 fig.legend(
                     handles_dict.values(),
