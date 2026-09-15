@@ -34,6 +34,10 @@ Use pytest with `test_*.py` files and `test_*` functions or methods. Reuse seede
 
 ## Commit & Pull Request Guidelines
 
+Branches whose names start with `private.` are local-only and are never pushed (a local
+`pre-push` hook enforces this). Use the prefix for experiments or archives that should
+not appear on GitHub.
+
 Use short descriptive commit subjects, optionally prefixed by component (e.g., `adaptive:`). Keep commits focused. PRs should explain behavior changes, relevant issues, validation results, and API effects. Include plots for visualization changes. Exclude generated datasets, caches, and build artifacts.
 
 ## Repository Skills
