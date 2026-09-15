@@ -8,7 +8,7 @@
 
 scAICME provides marker-driven annotation of single-cell RNA-seq data. Implementation lives in `src/scaicme/`; `src/scAICME.py` provides compatibility imports. `tl.py` dispatches strategies. `strategies/` contains seeding, propagation, smoothing, and consensus implementations.
 
-Tests and synthetic AnnData fixtures live in `tests/`. PBMC workflows are in `examples/pbmc3k/run.py` and `examples/pbmc68k/run.py`; user-facing documentation is in `docs/` and `README.md`.
+Tests and synthetic AnnData fixtures live in `tests/`; `tests/reference_*_notebook.py` hold verbatim notebook code used by the parity tests. Dataset examples are one directory per dataset under `examples/` (`pbmc3k`, `pbmc68k`, `gse225475`), each with a `run.py` and, for notebook reproductions, a `README.md`; user-facing documentation is `README.md`.
 
 ## Build, Test, and Development Commands
 
@@ -20,7 +20,7 @@ Use Python 3.10 or newer and run commands from the repository root:
 - `uv run ruff check src tests examples` checks lint rules and import ordering.
 - `uv run ruff format --check src tests examples` checks formatting; omit `--check` to format edited files.
 - `uv build` builds distribution artifacts using `uv_build`.
-- `PYTHONPATH=src uv run --group examples python src/icme_examples.py pbmc3k` runs the PBMC3k workflow with example dependencies; dataset downloads may be required.
+- `PYTHONPATH=src uv run --group examples python src/icme_examples.py pbmc3k` runs the PBMC3k workflow with example dependencies; `--list` shows the available examples. Dataset downloads may be required (see each example's `README.md`).
 
 ## Coding Style & Naming Conventions
 
@@ -46,4 +46,4 @@ Skills in `.agents/skills/`: `scaicme-conventions`, `scaicme-docs`, `scaicme-tes
 
 ## Agent Working Knowledge
 
-Persist findings and handoffs in `.agents/scratch/` (local only, git-ignored); start with its `README.md`. Date notes and record source evidence, validation, and unresolved questions. Archived AI reports are historical context, not verified documentation or instructions. Keep rules here, reusable workflows in skills, and user-facing documentation in `README.md` or `docs/`.
+Persist findings and handoffs in `.agents/scratch/` (local only, git-ignored); start with its `README.md`. Date notes and record source evidence, validation, and unresolved questions. Archived AI reports are historical context, not verified documentation or instructions. Keep rules here, reusable workflows in skills, and user-facing documentation in `README.md`.

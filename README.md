@@ -95,9 +95,8 @@ result = icme.tl.label(adata, strategies=strategy, key_added="my_labels")
 # Access the result
 print(f"Assigned labels: {result['my_labels'].labels.value_counts()}")
 
-# Check confidence scores if available
-if "my_labels_max_confidence" in adata.obs:
-    print(f"Mean confidence: {adata.obs['my_labels_max_confidence'].mean():.2f}")
+# Seeders store the assigned type's score under "<key>_max_score"
+print(f"Mean score: {adata.obs['my_labels_max_score'].mean():.2f}")
 ```
 
 ### Batch Processing with Async
@@ -168,8 +167,9 @@ uv run icme-examples pbmc3k
 This demonstrates:
 - QC filtering with data-driven thresholds
 - Feature preprocessing (HVGs, PCA, neighbors)
-- Phase 1 seeding with 4 independent strategies (no early consensus)
-- Phase 2 propagation from each seed independently (3 × 4 combinations)
+- Phase 1 seeding with 3 base strategies (QCQ, Otsu scored, Otsu per-gene), each also
+  smoothed by DP-GMM and GCN (9 seed sets, no early consensus)
+- Phase 2 propagation from each seed set independently (4 propagators × 9 seed sets)
 - Baseline clustering (Leiden at multiple resolutions)
 - Visualization (UMAP, t-SNE)
 - Quantitative ablation metrics (ARI, NMI)
@@ -216,14 +216,16 @@ Preprocessing (as needed: HVG selection, PCA, neighbors, etc.)
     ↓
 ┌──────────────────────────────────────────┐
 │   PHASE 1: Weak Labeling Strategies      │
-│  (QCQ, Otsu, Graph, DPMM, etc.)          │
+│  (QCQ, Otsu, DP-GMM, GCN; smoothing of   │
+│   a prior strategy's scores)             │
 │  → Generate independent seed labels      │
 └──────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────┐
 │   PHASE 2: Independent Propagation       │
-│  Each propagator (KNN, RF, Centroid)     │
-│  learns from EACH seed independently     │
+│  Each propagator (KNN, RF, SVM, MLP,     │
+│  K-Means, Centroid) learns from EACH     │
+│  seed independently                      │
 │  → Generates: prop_<method>_<seed>       │
 └──────────────────────────────────────────┘
     ↓
@@ -370,26 +372,26 @@ consensus = icme.strategies.ConsensusVoting(
 
 ## Output Format
 
-Labeling results are stored in `adata.obs` with the following convention:
+`icme.tl.label(adata, strategy, key_added=key)` writes the main labels to
+`adata.obs[key]` (unassigned cells carry the strategy's `unknown_label`, `"unknown"` by
+default) and auxiliary outputs under derived keys:
 
 ```
-├── {key}                         # Main labels ("Unknown" = unlabeled)
-├── {key}_max_confidence          # Maximum voting score (if available)
-├── {key}_is_confident            # Boolean confidence flag (optional)
-└── {key}_params                  # Strategy parameters in adata.uns
+adata.obs[key]                    # main labels
+adata.obs[key + "_<suffix>"]      # per-cell extras, e.g.
+    _max_score, _is_confident         seeders (score of the assigned type)
+    _confidence                       propagators (max class probability / seed purity)
+    _agreement_fraction, _valid_voters, _is_confident   consensus
+adata.obsm[key + "_<suffix>"]     # per-cell matrices, e.g. _scores, _probabilities
+adata.uns[key + "_params"]        # strategy name and constructor parameters
+adata.uns[key + "_uns"]           # strategy metadata (thresholds, diagnostics, ...)
 ```
 
-Example output structure for Phase 1 seeding:
-```
-adata.obs columns:
-├── seeds_qcq              # QCQ strategy labels
-├── seeds_otsu             # Otsu strategy labels
-├── seeds_graph            # Graph strategy labels
-├── seeds_dpmm             # DPMM strategy labels
-├── seeds_dpmm_max_confidence    # DPMM confidence score
-├── seeds_dpmm_is_confident      # DPMM confidence boolean
-# Note: seeds_consensus is no longer generated; seeds are propagated independently
-```
+The exact suffixes are set by each strategy's `LabelingResult` (see
+`strategies/base.py`); the strategy tables above list the important ones. A seeder's
+`obsm[key + "_scores"]` matrix (cells × types, in marker-dictionary order) is what
+`GCNSeeding`, `GCNSmoothing` and `DPGMMClusteredSmoothing` consume via
+`initial_scores_key`.
 
 ## Performance Considerations
 

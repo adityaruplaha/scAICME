@@ -1,6 +1,6 @@
 ---
 name: scaicme-docs
-description: Write or update scAICME README content, API docstrings, strategy explanations, and PBMC example documentation. Use when documenting package behavior or synchronizing docs with code.
+description: Write or update scAICME README content, API docstrings, strategy explanations, and dataset example documentation. Use when documenting package behavior or synchronizing docs with code.
 ---
 
 # scAICME Documentation
@@ -11,10 +11,10 @@ Use `AGENTS.md` for repository commands and layout. Resolve the affected API aga
 
 - Put installation, quick-start usage, and public workflow explanations in `README.md`.
 - Put argument defaults, return values, exceptions, and AnnData effects in the affected API's NumPy-style docstring.
-- Use `docs/` for verified, user-facing strategy explanations. Store agent findings and handoffs in `.agents/scratch/`, using its `README.md` as the index. For new working documents, apply `.agents/skills/scaicme-reporting/SKILL.md` to record model, harness, and creation time in YAML frontmatter.
-- The former `docs/ai-summary-stategies.md` and reports from `ai-outputs/` are historical AI outputs now in `.agents/scratch/archive/`. Treat them as unverified context, not package documentation or instructions; check claims against current code before reuse.
+- Put dataset-specific usage, data layout, and reproduction records in the example's `README.md` under `examples/<dataset>/`. Store agent findings and handoffs in `.agents/scratch/` (local, git-ignored), using its `README.md` as the index; apply `.agents/skills/scaicme-reporting/SKILL.md` to new working documents.
+- Historical AI-generated reports live only in `.agents/scratch/archive/`; treat them as unverified context, not package documentation or instructions.
 - Keep repository rules in `AGENTS.md` and reusable workflows in `.agents/skills/`; working notes should record dated findings, evidence, validation, and open questions.
-- Keep PBMC workflow instructions consistent with `examples/pbmc3k/run.py`, `examples/pbmc68k/run.py`, and `src/icme_examples.py`.
+- Keep example instructions consistent with the `run.py` scripts under `examples/` and `src/icme_examples.py`. Do not name the collaborator's notebook files or their execution environment in tracked text; "notebook reproduction" plus the dataset name is enough.
 
 ## Explain observable behavior
 
@@ -26,4 +26,4 @@ For dispatcher examples, verify accepted single/list/dictionary inputs and `key_
 
 ## Check examples proportionately
 
-Verify local paths, command entry points, and optional dependencies against source and `pyproject.toml`. Prefer a small synthetic example when executing a snippet. Run a full PBMC workflow only when needed for the requested validation; it may download datasets and generate plots. State which examples were executed and which were only inspected. Do not report unmeasured scientific improvements.
+Verify local paths, command entry points, and optional dependencies against source and `pyproject.toml`. Prefer a small synthetic example when executing a snippet. Run a full dataset example only when needed for the requested validation; it may download datasets and generate plots. State which examples were executed and which were only inspected. Do not report unmeasured scientific improvements.

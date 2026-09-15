@@ -1,66 +1,51 @@
 ---
 name: scaicme-examples
-description: Create or update scAICME dataset examples using one directory per dataset, CSV manifests, and dataset configs that inherit shared JSON defaults and mappings.
+description: Create or update scAICME dataset examples as one self-contained run.py per dataset that reproduces the corresponding analysis notebook exactly, with a README recording data layout and parity evidence.
 ---
 
 # Dataset examples
 
-Use this when adding a dataset workflow or changing example configuration. Read
-`examples/README.md` for the maintained format and `examples/_shared/workflow.py`
-for actual loading and execution behavior. The repository's `AGENTS.md` applies.
+Use this when adding or changing a dataset workflow under `examples/`. The
+repository's `AGENTS.md` applies. Examples on this branch are notebook
+reproductions: the goal is identical outputs, not improved analysis.
 
-## Layout and configuration
+## Layout
 
-Give each dataset one lowercase directory under `examples/` with `run.py`,
-`config.json`, `manifest.csv`, and a source-specific `README.md`. Reuse an existing
-accession directory; sample or donor variants belong in manifest rows. Copy the
-thin `run.py` wrapper from `examples/pbmc68k/`; common analysis belongs in
-`examples/_shared/workflow.py`, which is not independently listed by the launcher.
+One lowercase directory per dataset under `examples/` (`pbmc68k`, `gse225475`, ...)
+containing a self-contained `run.py` and a `README.md`. `src/icme_examples.py`
+discovers any directory with a `run.py`; do not add shared helper modules under
+`examples/`—reusable steps belong in the package (`scaicme.pp`, `scaicme.evaluation`,
+strategies). Outputs go to `examples/<dataset>/outputs/` and data to
+`data/<dataset>/`; both are git-ignored (`.gitignore` keeps `*.py` and `README.md`).
 
-Keep reusable settings in `examples/shared.json`: `defaults` for analysis settings,
-`marker_panels` for named label-to-gene mappings, and `reference_mappings` for named
-reference-to-panel taxonomies. Do not duplicate shared defaults in each config.
-Dataset configs contain identity, source, modality, `shared_config: "../shared.json"`,
-`manifest: "manifest.csv"`, `marker_panel`, review status, and justified overrides.
-Nested settings merge recursively; lists and explicit null replace inherited values.
-A `markers` file path overrides the shared panel. A `reference_mapping_name` selects
-shared mappings; local `reference_mapping` entries override individual labels.
-Marker panels and mappings are biological inputs: reuse them only for compatible
-species and taxonomies. Keep genuinely dataset-specific inputs local.
+`run.py` reads its data directory from an environment variable with a sensible
+default (`SCAICME_<DATASET>_DIR`, default `data/<dataset>`), fails with a clear
+message when inputs are missing, and prints the same diagnostics the notebook
+printed so runs can be compared. Configuration lives in module-level constants at
+the top of the script (samples, marker panel, per-stage settings), each annotated
+with the notebook cell it comes from.
 
-`--init` must snapshot this dataset's manifest/config and shared settings into a new
-workspace, rewrite paths appropriately, and preserve existing workspaces. Relative
-paths resolve against the workspace. Custom panel files must also be copied.
-Resolved analysis settings and actual markers must remain in run provenance.
+## Reproducing a notebook
 
-## Dataset integrity
+Transcribe the notebook stage by stage onto package strategies, passing every
+setting explicitly rather than relying on package defaults. Where the package lacks
+a behavior the notebook has, add it to the package (a strategy option or a new
+strategy) instead of special-casing the example. Keep the notebook's own functions
+verbatim in `tests/reference_<dataset>_notebook.py` and add exact-equality parity
+tests in `tests/test_<dataset>_notebook_parity.py` on the synthetic fixture.
 
-Verify accession identity and processed-data layout against primary source records
-when adding new sources; never infer cohorts from a paper's figure counts. Record
-source links, intended donor/section selections, and any unresolved selection in the
-dataset README. Leave unknown paths or selections as explicit user actions.
+Validate on the real data: compare printed counts with the notebook output, and
+when they differ, run the reference functions on the same in-memory data to
+separate a port error from library-version drift. Record both in the README's
+parity section with the environment used. Do not tune settings to close a gap that
+the reference functions reproduce.
 
-Declare actual counts, linear normalized, or natural-log1p expression in each row.
-For MTX/text, provide orientation and required axes; join metadata by barcode. Split
-pooled donors with `group_by`. Do not substitute a reduced dataset for its full
-accession. Preserve all-gene marker expression through feature selection.
+## Documenting
 
-Starter panels remain `markers_reviewed: false` until the user reviews them. Do not
-invent detailed subtype panels or reference truth. Keep sqrt(N) as the configurable
-component default unless the task calls for a justified override. Spatial-expression
-examples preserve coordinates and use expression annotation; adding an example does
-not authorize implementing spatial models or changing manuscript/notebook files.
-
-## Check and document
-
-Document `--init`, the exact manual inputs, `--check`, and the dataset's run command.
-Link the shared guide for schema/output details instead of copying it. Ensure template
-files are not hidden by `.gitignore`; keep downloaded data and generated outputs out.
-
-Extend `tests/test_dataset_examples.py` for new accession coverage and meaningful
-loader/config behavior. Verify that the launcher lists the dataset exactly once,
-initialization copies only the selected dataset, overrides preserve other defaults,
-and preflight reports missing inputs. Use synthetic data for pipeline checks; report
-real-data validation only when it was actually run. Run scoped Ruff checks and the
-repository-required tests. Store working reports in `.agents/scratch/` using the
-reporting skill; public usage instructions stay beside examples.
+The README gives the data source and exact extraction layout (with a download
+snippet), the run command, output files, a stage-by-stage mapping from notebook cells
+to package calls, deliberate deviations (for example a fixed `random_state` the
+notebook lacked), and the parity record. Refer to the source as "the <dataset>
+notebook" and cite its content hash; do not name notebook files, directories, or the
+original execution environment. Keep downloaded data and generated outputs out of
+git. Update `README.md` at the repository root when adding an example.
