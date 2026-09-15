@@ -15,9 +15,14 @@ wheels/
 # Local agent working notes (not published)
 .agents/scratch/
 
-# Examples: ignore outputs, keep source scripts
+# Examples: ignore outputs, keep source scripts and their READMEs
 examples/*/*
 !examples/*/*.py
+!examples/*/README.md
+
+# Downloaded datasets (see examples/*/README.md)
+data/gse225475/
 
 # Cache: .h5ad files
 cache
+/dataset-work/

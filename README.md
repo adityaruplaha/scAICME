@@ -53,7 +53,7 @@ seed_strategies = {
     "seeds_qcq_per_gene": icme.strategies.QCQAdaptiveSeeding(markers=markers),
     "seeds_otsu_scored": icme.strategies.OtsuScoredAdaptiveSeeding(markers=markers),
     "seeds_otsu_per_gene": icme.strategies.OtsuAdaptiveSeeding(markers=markers),
-    "seeds_graph": icme.strategies.GraphScoreSeeding(markers=markers),
+    "seeds_dpgmm": icme.strategies.DPGMMSeeding(markers=markers, random_state=0),
 }
 icme.tl.label(adata, strategies=seed_strategies, n_jobs=4)
 
@@ -121,6 +121,21 @@ async def label_multiple():
 # results = asyncio.run(label_multiple())
 ```
 
+
+## Example: GSE225475 psoriasis skin (Visium)
+
+`examples/gse225475/run.py` is a package-level reproduction of the GSE225475
+spatial notebook: six pooled Visium sections → QC (`icme.pp.qc_filter`) →
+`DPGMMSeeding` → PCA → SVM / K-Means / KNN / Random Forest / MLP propagation →
+plurality consensus → `scAICME_spatial_labels.csv`.
+
+```bash
+# Download the six GEO sample archives into data/gse225475/<sample>/ (~120 MB total)
+# (or point SCAICME_GSE225475_DIR at an existing extraction), then:
+PYTHONPATH=src uv run python examples/gse225475/run.py
+```
+
+See `examples/gse225475/README.md` for the data layout and the parity record.
 
 ## Example: PBMC3k Dataset
 
@@ -235,12 +250,29 @@ Use any (or many!) of the following strategies to generate independent seed labe
 | QCQ Per-Gene Adaptive Thresholding | `QCQAdaptiveSeeding` | Per-gene positive-expression thresholds with active-marker-fraction (`min_confidence`) gating |
 | Otsu Adaptive Thresholding on Scored Markers | `OtsuScoredAdaptiveSeeding` | `score_genes`-based marker set scoring with Otsu + minimum score gates |
 | Otsu Per-Gene Adaptive Thresholding | `OtsuAdaptiveSeeding` | Per-gene Otsu thresholds with active-marker-fraction (`min_confidence`) gating |
-| Graph Score Seeding | `GraphScoreSeeding` | Network-based marker co-expression scoring |
-| DPMM Clustered Adaptive Seeding | `DPMMClusteredAdaptiveSeeding` | Bayesian mixture model with automatic component selection and probabilistic confidence bounds |
+| Marker-set DP-GMM Seeding | `DPGMMSeeding` | Self-contained: per cell type, a Dirichlet-process GMM on standardized marker expression; signal components are those enriched for the type's markers; confidence is the cell's marker activation |
+| GCN Smoothing | `GCNSmoothing` | Graph-convolutional smoothing of a prior strategy's score matrix over the kNN graph |
+| DP-GMM Clustered Smoothing | `DPGMMClusteredSmoothing` | Bayesian mixture model gated by a prior strategy's seed scores |
 
 **Common Parameters:**
 - `markers` (dict): Cell type → marker gene list mapping
 - `unknown_label` (str, default "unknown"): Label for unlabeled cells
+- `use_raw` (bool, default True): Read marker expression from `adata.raw` when present
+
+`DPGMMSeeding` needs no prior scores. It skips a type whose markers are mostly absent or barely expressed, gates mixture components by mean marker score and size, reconciles types by confidence, and drops types that end up below `max(min_type_size, min_type_frac * n_cells)` cells. The per-type confidence matrix is stored in `obsm["<key>_scores"]`, the raw marker-activation fractions in `obsm["<key>_marker_scores"]`, and per-type fit diagnostics in `uns["<key>_uns"]["diagnostics"]`.
+
+```python
+seeder = icme.strategies.DPGMMSeeding(
+    markers=markers,
+    n_components=15,                # None -> max(2, int(sqrt(n_cells)))
+    weight_concentration_prior=0.1,
+    per_gene_pos_quantile=0.3,      # activation threshold per marker gene
+    cluster_score_min=0.08,         # mean marker score for a component to count as signal
+    min_cells_cluster=30,
+    random_state=42,
+)
+icme.tl.label(adata, seeder, key_added="weak_label")
+```
 
 ### Phase 2: Identity Extension Strategies
 
@@ -249,14 +281,22 @@ Extend seed identities to unlabeled cells using supervised learning:
 | Strategy | Class | Description |
 |----------|-------|-------------|
 | KNN Propagation | `KNNPropagation` | k-Nearest neighbor classification |
-| Random Forest Propagation | `RandomForestPropagation` | Ensemble-based classification |
+| Random Forest Propagation | `RandomForestPropagation` | Ensemble-based classification (`max_depth`, `min_samples_leaf`, `max_features`, `class_weight`) |
+| SVM Propagation | `SVMPropagation` | Kernel SVM with optional Platt probabilities (`class_weight="balanced"` supported) |
+| Neural Network Propagation | `NeuralNetworkPropagation` | MLP classifier with early stopping (`validation_fraction`, `n_iter_no_change`, `scale_features`) |
+| K-Means Propagation | `KMeansPropagation` | Cluster all cells, label each cluster by its majority seed; confidence is that majority's share of the cluster, seedless clusters take the nearest seed-class centroid |
 | Nearest Centroid Propagation | `NearestCentroidPropagation` | Centroid-based assignment |
 
 **Common Parameters:**
 - `seed_key` (str): Column in `adata.obs` containing seed labels
 - `obsm_key` (str, default "X_pca"): Feature representation for classification
+- `max_pcs` (int | None): Use only the first `max_pcs` columns of the feature matrix
 - `unknown_label` (str, default "unknown"): Label for unlabeled cells
-- `keep_seeds` (bool, default True): Preserve original seed labels
+- `keep_seeds` (bool, default True): Preserve original seed labels; set `False` to re-predict seeds
+- `min_seed_conf` (float, default 0.0): Train only on seeds whose confidence (`<seed_key>_max_score`, `<seed_key>_max_confidence`, or `conf_key`) reaches this value
+- `min_conf` (float, default 0.0): Predictions below this confidence become `unknown_label`
+
+For the probabilistic classifiers the label is the `argmax` of the same probability vector that supplies the confidence, so a cell's label and its confidence always refer to the same class.
 
 ### Consensus Strategy
 
@@ -268,7 +308,8 @@ Obtain a final consensus label by combining multiple strategies with majority vo
 
 **Parameters:**
 - `keys` (list[str]): Column names to combine
-- `majority_fraction` (float, default 0.66): Fraction of votes required (0.51 to 1.0)
+- `majority_fraction` (float | None, default 0.66): Fraction of votes required (0.51 to 1.0); `None` means plurality (the most common valid vote always wins)
+- `fraction_of` ("valid" | "all", default "valid"): Whether the agreement fraction is taken over the cell's valid (non-unknown) votes or over all voters in `keys`
 - `unknown_label` (str, default "unknown"): Label for unlabeled cells
 
 **Example Usage:**
