@@ -5,7 +5,7 @@ description: Create or update agent reports, knowledge notes, and handoffs in .a
 
 # Agent Reporting Convention
 
-Apply this convention to new Markdown working documents in `.agents/scratch/`, including indexes, knowledge notes, reports, and handoffs. `.claude/scratch/` resolves to the same location. Repository rules, skill definitions, public package documentation, and verbatim historical archives retain their own formats.
+Apply this convention to new Markdown working documents in `.agents/scratch/`, including indexes, knowledge notes, reports, and handoffs. The directory is git-ignored and shared across checkouts: branch-specific notes go under `knowledge/<branch>/`, cross-branch context at the top of `knowledge/`. `.claude/scratch/` resolves to the same location. Repository rules, skill definitions, public package documentation, and verbatim historical archives retain their own formats.
 
 ## Required YAML Frontmatter
 
