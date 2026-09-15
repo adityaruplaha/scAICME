@@ -26,6 +26,8 @@ class KNNPropagation(BaseMLPropagation):
         Number of neighbors to use for k-nearest neighbors classification.
     weights : str, default "distance"
         Weight function used in prediction ("uniform" or "distance").
+    p : int, default 2
+        Minkowski power parameter (1 = Manhattan, 2 = Euclidean).
     min_seed_conf : float, default 0.0
         Minimum confidence threshold for initial seed cells to be included in training.
     conf_key : str, default "max_confidence"
@@ -44,6 +46,7 @@ class KNNPropagation(BaseMLPropagation):
         keep_seeds: bool = True,
         n_neighbors: int = 15,
         weights: str = "distance",
+        p: int = 2,
         min_seed_conf: float = 0.0,
         conf_key: str = "max_confidence",
         min_conf: float = 0.0,
@@ -63,6 +66,7 @@ class KNNPropagation(BaseMLPropagation):
         )
         self.n_neighbors = n_neighbors
         self.weights = weights
+        self.p = p
 
     @property
     def name(self) -> str:
@@ -72,7 +76,7 @@ class KNNPropagation(BaseMLPropagation):
         X, X_train, y_train, y_raw, is_labeled = self._prepare_data(adata)
 
         n_neighbors = min(self.n_neighbors, len(X_train))
-        clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=self.weights)
+        clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=self.weights, p=self.p)
         clf.fit(X_train, y_train)
 
         probs = clf.predict_proba(X)

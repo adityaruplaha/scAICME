@@ -12,7 +12,7 @@ from .seeding.otsu_scored_adaptive import OtsuScoredAdaptiveSeeding
 from .seeding.qcq_adaptive import QCQAdaptiveSeeding
 from .seeding.qcq_scored_adaptive import QCQScoredAdaptiveSeeding
 from .smoothing.dpgmm import DPGMMClusteredSmoothing
-from .smoothing.gcn import GCNSmoothing
+from .smoothing.gcn import GCNSeeding, GCNSmoothing
 
 __all__ = [
     "BaseLabelingStrategy",
@@ -23,6 +23,7 @@ __all__ = [
     "OtsuAdaptiveSeeding",
     "OtsuScoredAdaptiveSeeding",
     "GCNSmoothing",
+    "GCNSeeding",
     "DPGMMClusteredSmoothing",
     "ConsensusVoting",
     "KMeansPropagation",

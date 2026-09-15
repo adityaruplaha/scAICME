@@ -1,7 +1,7 @@
 """Seeding strategies."""
 
 from ..smoothing.dpgmm import DPGMMClusteredSmoothing
-from ..smoothing.gcn import GCNSmoothing
+from ..smoothing.gcn import GCNSeeding, GCNSmoothing
 from .base import BaseSeedingStrategy
 from .dpgmm import DPGMMSeeding
 from .otsu_adaptive import OtsuAdaptiveSeeding
@@ -17,5 +17,6 @@ __all__ = [
     "OtsuAdaptiveSeeding",
     "OtsuScoredAdaptiveSeeding",
     "GCNSmoothing",
+    "GCNSeeding",
     "DPGMMClusteredSmoothing",
 ]

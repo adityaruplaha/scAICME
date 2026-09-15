@@ -357,3 +357,185 @@ class GCNSmoothing(BaseLabelingStrategy):
             obsm={"initial_scores": Y_0_df, "diffused_scores": diffused_df},
             uns=uns_meta,
         )
+
+
+class GCNSeeding(BaseLabelingStrategy):
+    r"""
+    GCN-style label propagation of a prior score matrix with fixed gates.
+
+    Starting from a prior strategy's cell-by-type score matrix (row-normalized to
+    probabilities), scores are diffused over the kNN graph,
+
+    $$Y_{t+1} = \alpha \hat{A} Y_t + (1-\alpha) Y_0, \qquad
+    \hat{A} = \tilde{D}^{-1/2}(A + I)\tilde{D}^{-1/2},$$
+
+    for a fixed number of iterations. A cell becomes a seed when its top diffused
+    score is at least `min_score` and its top-1/top-2 margin is at least `delta`.
+    Optionally only the `target_frac` most confident seeds are kept, and types with
+    fewer than ``max(min_cells_floor, floor(min_cells_per_type_pct * n_cells), 5)``
+    seeds are dropped.
+
+    Parameters
+    ----------
+    markers : Dict[str, List[str]] | List[str]
+        Cell types, in the column order of the score matrix (a marker dictionary or
+        a list of names).
+    initial_scores_key : str
+        Key in `adata.obsm` holding the prior cell-by-type score matrix.
+    obsp_key : str, default "connectivities"
+        Key in `adata.obsp` containing the neighborhood graph.
+    target_frac : float | None, default 0.25
+        Keep at most this fraction of cells (the most confident gated ones); ``None``
+        disables the cap.
+    min_score : float, default 0.55
+        Gate on the top diffused score.
+    delta : float, default 0.15
+        Gate on the margin between the top two diffused scores.
+    alpha : float, default 0.85
+        Propagation strength.
+    n_iter : int, default 100
+        Number of propagation iterations.
+    min_cells_per_type_pct : float, default 0.005
+        Fractional floor on seeds per type.
+    min_cells_floor : int, default 200
+        Absolute floor on seeds per type.
+    unknown_label : str, default "unknown"
+        Label for cells that receive no seed.
+    """
+
+    def __init__(
+        self,
+        markers: Dict[str, List[str]] | List[str],
+        initial_scores_key: str,
+        obsp_key: str = "connectivities",
+        target_frac: float | None = 0.25,
+        min_score: float = 0.55,
+        delta: float = 0.15,
+        alpha: float = 0.85,
+        n_iter: int = 100,
+        min_cells_per_type_pct: float = 0.005,
+        min_cells_floor: int = 200,
+        unknown_label: str = "unknown",
+        **kwargs: Any,
+    ) -> None:
+        self.markers = markers
+        self.initial_scores_key = initial_scores_key
+        self.obsp_key = obsp_key
+        self.target_frac = target_frac
+        self.min_score = min_score
+        self.delta = delta
+        self.alpha = alpha
+        self.n_iter = n_iter
+        self.min_cells_per_type_pct = min_cells_per_type_pct
+        self.min_cells_floor = min_cells_floor
+        self.unknown_label = unknown_label
+
+    @property
+    def name(self) -> str:
+        return "gcn_seeding"
+
+    def _cell_types(self) -> List[str]:
+        return list(self.markers.keys()) if isinstance(self.markers, dict) else list(self.markers)
+
+    def execute_on(self, adata: AnnData) -> LabelingResult:
+        if self.obsp_key not in adata.obsp:
+            raise ValueError(
+                f"Graph key '{self.obsp_key}' not found in adata.obsp. "
+                f"Please run sc.pp.neighbors(adata) first."
+            )
+        if self.initial_scores_key not in adata.obsm:
+            raise ValueError(
+                f"Initial scores key '{self.initial_scores_key}' not found in adata.obsm"
+            )
+
+        types = self._cell_types()
+        scores = adata.obsm[self.initial_scores_key]
+        if isinstance(scores, pd.DataFrame):
+            scores = scores.reindex(columns=types).to_numpy(dtype=float)
+        else:
+            scores = np.asarray(scores, dtype=float)
+        if scores.ndim != 2 or scores.shape != (adata.n_obs, len(types)):
+            raise ValueError(
+                f"Initial score matrix '{self.initial_scores_key}' must have shape "
+                f"({adata.n_obs}, {len(types)})."
+            )
+
+        # Drop all-NaN types, then row-normalize to probabilities.
+        usable = ~np.isnan(scores).all(axis=0)
+        if not usable.any():
+            raise ValueError("Score matrix has no usable type columns.")
+        types = [t for t, u in zip(types, usable, strict=True) if u]
+        S0 = np.nan_to_num(scores[:, usable], nan=0.0)
+        Y0 = S0 / (S0.sum(axis=1, keepdims=True) + 1e-12)
+
+        # Symmetrically normalized adjacency with self loops.
+        N = adata.n_obs
+        A = adata.obsp[self.obsp_key]
+        if not sp.issparse(A):
+            A = sp.csr_matrix(A)
+        A_tilde = (A + sp.eye(N, format="csr")).tocsr()
+        deg = np.asarray(A_tilde.sum(axis=1)).ravel()
+        D_inv_sqrt = sp.diags(1.0 / np.sqrt(deg + 1e-12), format="csr")
+        A_hat = D_inv_sqrt @ A_tilde @ D_inv_sqrt
+
+        Y = Y0.copy()
+        for _ in range(self.n_iter):
+            Y = self.alpha * (A_hat @ Y) + (1.0 - self.alpha) * Y0
+        Y = np.asarray(Y)
+
+        # Gates on top-1 score and top-1/top-2 margin.
+        top1_idx = Y.argmax(axis=1)
+        top1 = Y[np.arange(N), top1_idx]
+        Y2 = Y.copy()
+        Y2[np.arange(N), top1_idx] = -np.inf
+        top2 = Y2.max(axis=1)
+        margin = top1 - top2
+        gate = (top1 >= float(self.min_score)) & (margin >= float(self.delta))
+
+        labels = np.array([self.unknown_label] * N, dtype=object)
+        labels[gate] = np.array(types, dtype=object)[top1_idx[gate]]
+        conf = np.zeros(N, dtype=float)
+        conf[gate] = top1[gate]
+
+        # Optional cap: keep the most confident target_frac of cells.
+        if self.target_frac is not None:
+            target_n = int(round(float(self.target_frac) * N))
+            if target_n > 0:
+                idx_labeled = np.where(labels != self.unknown_label)[0]
+                if idx_labeled.size > target_n:
+                    order = idx_labeled[np.argsort(-conf[idx_labeled])]
+                    drop = np.setdiff1d(idx_labeled, order[:target_n], assume_unique=False)
+                    labels[drop] = self.unknown_label
+                    conf[drop] = 0.0
+
+        # Drop types below the size floor.
+        min_cells = max(
+            int(self.min_cells_floor), int(np.floor(float(self.min_cells_per_type_pct) * N)), 5
+        )
+        counts = pd.Series(labels).value_counts()
+        keep_types = set(counts[counts >= min_cells].index.tolist())
+        keep_types.discard(self.unknown_label)
+        small = (labels != self.unknown_label) & ~np.isin(labels, list(keep_types))
+        labels[small] = self.unknown_label
+        conf[small] = 0.0
+
+        final_labels = pd.Series(labels, index=adata.obs_names, dtype=str)
+        is_confident = final_labels != self.unknown_label
+        return LabelingResult(
+            adata=adata,
+            strategy=self,
+            labels=final_labels,
+            obs={
+                "max_score": pd.Series(conf, index=adata.obs_names),
+                "top1": pd.Series(top1, index=adata.obs_names),
+                "margin": pd.Series(margin, index=adata.obs_names),
+                "is_confident": is_confident,
+            },
+            obsm={"scores": pd.DataFrame(Y, index=adata.obs_names, columns=types)},
+            uns={
+                "cell_types": types,
+                "min_cells_used": int(min_cells),
+                "gate_pass_fraction": float(gate.mean()),
+                "fraction_assigned": float(is_confident.mean()),
+            },
+        )

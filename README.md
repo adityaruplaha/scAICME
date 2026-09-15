@@ -137,6 +137,25 @@ PYTHONPATH=src uv run python examples/gse225475/run.py
 
 See `examples/gse225475/README.md` for the data layout and the parity record.
 
+## Example: PBMC 68k
+
+`examples/pbmc68k/run.py` reproduces the PBMC 68k notebook: QC →
+quota seeding (`QCQAdaptiveSeeding` with `target_frac`) → `GCNSeeding` on its score
+matrix → 15 PCs → SVM / K-Means / KNN / Random Forest / MLP → plurality consensus →
+rare-cell flag and agreement metrics against a reference annotation
+(`icme.evaluation.compare_many`). See `examples/pbmc68k/README.md`.
+
+```bash
+PYTHONPATH=src uv run python examples/pbmc68k/run.py
+```
+
+### Evaluation helpers
+
+`icme.evaluation.compare_labels(adata, pred_key, ref_key)` returns ARI, NMI, macro-F1,
+accuracy and coverage (over all cells and over cells labeled in both columns);
+`compare_many` tabulates several prediction columns; `flag_rare` marks cells with weak
+consensus agreement or tiny consensus types.
+
 ## Example: PBMC3k Dataset
 
 A complete end-to-end pipeline is provided in `examples/pbmc3k/run.py`:
@@ -251,13 +270,16 @@ Use any (or many!) of the following strategies to generate independent seed labe
 | Otsu Adaptive Thresholding on Scored Markers | `OtsuScoredAdaptiveSeeding` | `score_genes`-based marker set scoring with Otsu + minimum score gates |
 | Otsu Per-Gene Adaptive Thresholding | `OtsuAdaptiveSeeding` | Per-gene Otsu thresholds with active-marker-fraction (`min_confidence`) gating |
 | Marker-set DP-GMM Seeding | `DPGMMSeeding` | Self-contained: per cell type, a Dirichlet-process GMM on standardized marker expression; signal components are those enriched for the type's markers; confidence is the cell's marker activation |
-| GCN Smoothing | `GCNSmoothing` | Graph-convolutional smoothing of a prior strategy's score matrix over the kNN graph |
+| GCN Seeding | `GCNSeeding` | Row-normalizes a prior strategy's score matrix, diffuses it over the kNN graph for a fixed number of iterations, then gates on top score and top-1/top-2 margin, optionally keeps only the most confident `target_frac`, and drops small types |
+| GCN Smoothing | `GCNSmoothing` | Graph-convolutional smoothing of a prior strategy's score matrix with adaptive quantile gates and quota selection |
 | DP-GMM Clustered Smoothing | `DPGMMClusteredSmoothing` | Bayesian mixture model gated by a prior strategy's seed scores |
 
 **Common Parameters:**
 - `markers` (dict): Cell type → marker gene list mapping
 - `unknown_label` (str, default "unknown"): Label for unlabeled cells
 - `use_raw` (bool, default True): Read marker expression from `adata.raw` when present
+
+With `target_frac`, the QCQ/Otsu seeders allocate an exact labeling budget: every type with at least `min_cells_per_type` eligible cells gets that many seeds, the remaining budget is shared in proportion to each type's surplus of eligible cells, and the highest-scoring eligible cells fill each quota. Their per-type score matrix is stored in `obsm["<key>_scores"]` and can feed `GCNSeeding` (`initial_scores_key="<key>_scores"`).
 
 `DPGMMSeeding` needs no prior scores. It skips a type whose markers are mostly absent or barely expressed, gates mixture components by mean marker score and size, reconciles types by confidence, and drops types that end up below `max(min_type_size, min_type_frac * n_cells)` cells. The per-type confidence matrix is stored in `obsm["<key>_scores"]`, the raw marker-activation fractions in `obsm["<key>_marker_scores"]`, and per-type fit diagnostics in `uns["<key>_uns"]["diagnostics"]`.
 

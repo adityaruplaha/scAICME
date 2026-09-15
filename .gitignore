@@ -22,6 +22,7 @@ examples/*/*
 
 # Downloaded datasets (see examples/*/README.md)
 data/gse225475/
+data/pbmc68k/
 
 # Cache: .h5ad files
 cache

@@ -34,8 +34,8 @@ class KMeansPropagation(BaseMLPropagation):
     n_clusters : int | None, default None
         Number of clusters to form. If `None`, uses
         ``min(10, max(8, int(sqrt(n_cells / 2))))``.
-    n_init : int, default 20
-        Number of K-Means initializations.
+    n_init : int | str, default 20
+        Number of K-Means initializations (or ``"auto"``).
     max_iter : int, default 500
         Maximum K-Means iterations per initialization.
     scale_features : bool, default True
@@ -60,7 +60,7 @@ class KMeansPropagation(BaseMLPropagation):
         unknown_label: str = "unknown",
         keep_seeds: bool = True,
         n_clusters: int | None = None,
-        n_init: int = 20,
+        n_init: int | str = 20,
         max_iter: int = 500,
         scale_features: bool = True,
         random_state: int | None = None,

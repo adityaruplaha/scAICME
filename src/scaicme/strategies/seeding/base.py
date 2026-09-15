@@ -149,6 +149,18 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         """
         Execute exact budget allocation across cell types based on `target_frac` and `min_cells_per_type`.
 
+        This is the notebook quota algorithm (``weak_label_quota_with_min_cells``):
+
+        1. A cell is eligible when it clears the threshold for its best-scoring type.
+        2. Types with fewer than `min_cells_per_type` eligible cells are dropped; if more
+           types remain than ``budget // min_cells_per_type`` can accommodate, the most
+           abundant types are kept.
+        3. Every kept type gets `min_cells_per_type`; the remaining budget is shared in
+           proportion to each type's surplus of eligible cells (floored, leftovers handed
+           out one at a time from the largest share), capped by availability, then any
+           deficit is refilled greedily from types with spare eligible cells.
+        4. Within each type the highest-scoring eligible cells fill the quota.
+
         Parameters
         ----------
         scores_df : pd.DataFrame
@@ -167,71 +179,76 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         """
         final_labels = pd.Series(self.unknown_label, index=scores_df.index, dtype=str)
         n_total = len(scores_df)
-        total_budget = int(round(n_total * self.target_frac))
+        target_total = int(round(n_total * self.target_frac))
         min_cells = self.min_cells_per_type if self.min_cells_per_type is not None else 0
 
-        # Collect candidate cells per cluster (cells where best_match is cluster and threshold cleared)
-        candidates_per_type: Dict[str, List[str]] = {}
-        for col in scores_df.columns:
-            mask = has_match & (best_match == col) & pass_mask[col]
-            candidates_per_type[col] = scores_df.index[mask].tolist()
+        best_type = best_match.to_numpy().astype(str)
+        best_score = scores_df.max(axis=1).to_numpy(dtype=float)
+        eligible = (
+            has_match.to_numpy()
+            & (pass_mask.to_numpy()[np.arange(n_total), scores_df.columns.get_indexer(best_type)])
+        )
 
-        # Filter out types with fewer than min_cells eligible candidates
-        eligible_types = [
-            col
-            for col, cands in candidates_per_type.items()
-            if len(cands) >= min_cells and len(cands) > 0
-        ]
-
-        if not eligible_types:
+        # Types with enough eligible cells, most abundant first.
+        eligible_counts = pd.Series(best_type[eligible]).value_counts()
+        keep_types = eligible_counts[eligible_counts >= max(min_cells, 1)].index.tolist()
+        if not keep_types:
             return final_labels
 
-        # Calculate quotas per eligible cell type
-        quotas: Dict[str, int] = dict.fromkeys(eligible_types, min_cells)
-        base_total = sum(quotas.values())
+        if min_cells > 0:
+            max_types = target_total // min_cells
+            if max_types == 0:
+                return final_labels
+            if len(keep_types) > max_types:
+                keep_types = (
+                    eligible_counts.loc[keep_types]
+                    .sort_values(ascending=False)
+                    .index[:max_types]
+                    .tolist()
+                )
 
-        if total_budget > base_total:
-            remaining_budget = total_budget - base_total
-            total_avail = sum(len(candidates_per_type[col]) - min_cells for col in eligible_types)
-            if total_avail > 0:
-                # Proportional distribution of remaining budget based on available candidates above min_cells
-                for col in eligible_types:
-                    avail = len(candidates_per_type[col]) - min_cells
-                    if avail > 0:
-                        add = int(round(remaining_budget * (avail / total_avail)))
-                        quotas[col] = min(min_cells + add, len(candidates_per_type[col]))
+        # Base allocation plus proportional share of the remaining budget.
+        base = dict.fromkeys(keep_types, min_cells)
+        remaining = max(0, target_total - sum(base.values()))
+        avail = eligible_counts.loc[keep_types].to_dict()
+        extra = dict.fromkeys(keep_types, 0)
+        if remaining > 0:
+            weights = np.array([max(0, avail[t] - base[t]) for t in keep_types], dtype=float)
+            if weights.sum() > 0:
+                props = weights / weights.sum()
+                raw_extra = np.floor(props * remaining).astype(int)
+                for t, e in zip(keep_types, raw_extra, strict=True):
+                    extra[t] = int(e)
+                leftover = remaining - sum(extra.values())
+                order = np.argsort(-props)
+                k = 0
+                while leftover > 0:
+                    extra[keep_types[order[k % len(order)]]] += 1
+                    leftover -= 1
+                    k += 1
 
-                # Greedily refill deficit or trim excess to match total_budget as closely as possible
-                current_total = sum(quotas.values())
-                while current_total < total_budget:
-                    added = False
-                    # Sort eligible types by highest available spare capacity
-                    for col in sorted(
-                        eligible_types,
-                        key=lambda c: len(candidates_per_type[c]) - quotas[c],
-                        reverse=True,
-                    ):
-                        if quotas[col] < len(candidates_per_type[col]):
-                            quotas[col] += 1
-                            current_total += 1
-                            added = True
-                            if current_total == total_budget:
-                                break
-                    if not added:
-                        break
-        else:
-            # If base quota exceeds total budget, scale down across available
-            for col in eligible_types:
-                quotas[col] = min(quotas[col], len(candidates_per_type[col]))
+        quota = {t: int(min(base[t] + extra[t], avail[t])) for t in keep_types}
 
-        # Assign top q scoring cells for each eligible cell type
-        for col, q in quotas.items():
-            if q <= 0:
+        # Refill any deficit caused by capping from types with spare eligible cells.
+        deficit = target_total - sum(quota.values())
+        if deficit > 0:
+            spare = {t: avail[t] - quota[t] for t in keep_types}
+            for t in sorted(keep_types, key=lambda t: spare[t], reverse=True):
+                if deficit <= 0:
+                    break
+                take = min(deficit, spare[t])
+                if take > 0:
+                    quota[t] += int(take)
+                    deficit -= int(take)
+
+        # Top-scoring eligible cells fill each type's quota.
+        eligible_idx = np.where(eligible)[0]
+        labels = final_labels.to_numpy().astype(object)
+        for t in keep_types:
+            idx_t = eligible_idx[best_type[eligible_idx] == t]
+            if idx_t.size == 0:
                 continue
-            cands = candidates_per_type[col]
-            # Sort candidate indices by score in descending order
-            sorted_cands = sorted(cands, key=lambda idx: scores_df.loc[idx, col], reverse=True)
-            top_cands = sorted_cands[:q]
-            final_labels.loc[top_cands] = col
+            idx_sorted = idx_t[np.argsort(-best_score[idx_t])]
+            labels[idx_sorted[: quota[t]]] = t
 
-        return final_labels
+        return pd.Series(labels, index=scores_df.index, dtype=str)
