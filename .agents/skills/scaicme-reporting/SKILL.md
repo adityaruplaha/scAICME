@@ -22,7 +22,7 @@ generated_at: "<current ISO 8601 UTC timestamp>"
 Replace every placeholder before saving. Use these exact field names and quote all values.
 
 - `model`: use the most specific model identifier explicitly available in the active session or trusted runtime metadata. Preserve its spelling; do not infer a model from the harness, a configured default, or another agent's identity. If unavailable, use `"unknown"` and explain the limitation briefly in the report.
-- `harness`: name the actual execution application, such as `"Codex"` or `"Claude Code"`, when established by the session. Include a version only if observed. Use `"unknown"` if the harness cannot be established.
+- `harness`: name the actual execution application (the agent CLI or IDE integration in use), when established by the session. Include a version only if observed. Use `"unknown"` if the harness cannot be established.
 - `generated_at`: read the clock immediately before creating the document. Use UTC with seconds and a `Z` suffix, for example the output of `date -u +%Y-%m-%dT%H:%M:%SZ`. Do not copy a timestamp from this skill, the conversation start, or a previous report.
 
 The generating model is the agent writing the document. When incorporating another agent's findings, attribute those contributions in the body without replacing the document author's provenance. Never invent an exact model version or original generation time.

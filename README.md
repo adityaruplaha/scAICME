@@ -25,11 +25,13 @@ This package is designed for annotating scRNA-seq datasets when you have prior k
 
 ## Installation
 
-The package requires Python ≥ 3.10. Core dependencies (scanpy, scikit-learn, pandas, numpy) are automatically installed.
+The package requires Python ≥ 3.10. Core dependencies (scanpy, scikit-learn, pandas, numpy) are automatically installed. `uv sync --group dev` recreates the locked environment (`uv.lock`), which is the reference environment for the parity numbers recorded in the example READMEs; kNN graphs, SVM probability calibration and ARPACK PCA are all sensitive to library versions.
 
 ## Quick Start
 
 ### Basic Usage
+
+A generic seed → propagate → consensus pipeline. The dataset examples further down follow the notebook pipelines exactly and are the reference for the preprint.
 
 ```python
 import scanpy as sc
@@ -155,9 +157,9 @@ accuracy and coverage (over all cells and over cells labeled in both columns);
 `compare_many` tabulates several prediction columns; `flag_rare` marks cells with weak
 consensus agreement or tiny consensus types.
 
-## Example: PBMC3k Dataset
+## Example: PBMC3k Dataset (demo)
 
-A complete end-to-end pipeline is provided in `examples/pbmc3k/run.py`:
+`examples/pbmc3k/run.py` is a first-pass demonstration of the generic pipeline on the bundled PBMC3k data (no download needed). It is not a notebook reproduction; see `examples/pbmc3k/README.md`.
 
 ```bash
 # Run the PBMC3k example

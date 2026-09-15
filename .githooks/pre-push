@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuse to push local-only branches (convention: names starting with "private.").
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$local_ref" in
+        refs/heads/private.*)
+            echo "pre-push: refusing to push local-only branch '${local_ref#refs/heads/}'" >&2
+            exit 1 ;;
+    esac
+done
+exit 0

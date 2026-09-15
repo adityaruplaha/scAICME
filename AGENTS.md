@@ -14,7 +14,7 @@ Tests and synthetic AnnData fixtures live in `tests/`; `tests/reference_*_notebo
 
 Use Python 3.10 or newer and run commands from the repository root:
 
-- `uv sync --group dev` installs the project and development dependencies.
+- `uv sync --group dev` installs the project and development dependencies; `git config core.hooksPath .githooks` enables the repository hooks.
 - `PYTHONPATH=src uv run pytest` runs the test suite against local source, including the compatibility shim.
 - `PYTHONPATH=src uv run pytest tests/test_tl.py -q` checks dispatcher behavior.
 - `uv run ruff check src tests examples` checks lint rules and import ordering.
@@ -34,9 +34,10 @@ Use pytest with `test_*.py` files and `test_*` functions or methods. Reuse seede
 
 ## Commit & Pull Request Guidelines
 
-Branches whose names start with `private.` are local-only and are never pushed (a local
-`pre-push` hook enforces this). Use the prefix for experiments or archives that should
-not appear on GitHub.
+Branches whose names start with `private.` are local-only and are never pushed. The
+`.githooks/pre-push` hook enforces this; enable it once per clone with
+`git config core.hooksPath .githooks`. Use the prefix for experiments or archives that
+should not appear on GitHub.
 
 Use short descriptive commit subjects, optionally prefixed by component (e.g., `adaptive:`). Keep commits focused. PRs should explain behavior changes, relevant issues, validation results, and API effects. Include plots for visualization changes. Exclude generated datasets, caches, and build artifacts.
 
