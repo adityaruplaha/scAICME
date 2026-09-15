@@ -5,7 +5,7 @@ description: Write or refresh a concise scAICME task handoff when a user request
 
 # Task Handoffs
 
-Store a handoff in `.agents/scratch/knowledge/handoff-<topic>.md`, using a short descriptive topic. Update an existing handoff for the same task rather than creating competing copies. Follow [scaicme-reporting](../scaicme-reporting/SKILL.md) for provenance.
+Store a handoff in `.agents/scratch/knowledge/<branch>/handoff-<topic>.md`, using the current branch name and a short descriptive topic (the scratch directory is git-ignored and shared across checkouts). Update an existing handoff for the same task rather than creating competing copies. Follow [scaicme-reporting](../scaicme-reporting/SKILL.md) for provenance.
 
 ## Leave Enough Context to Resume
 

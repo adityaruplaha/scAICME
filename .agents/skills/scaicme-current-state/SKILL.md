@@ -5,7 +5,7 @@ description: Maintain a concise scAICME current-state note describing observed b
 
 # Current-State Notes
 
-Keep a short, evidence-based orientation in `.agents/scratch/knowledge/current-state.md`. Read any existing note before updating it. Use [scaicme-reporting](../scaicme-reporting/SKILL.md) for creation and revision provenance.
+Keep a short, evidence-based orientation in `.agents/scratch/knowledge/<branch>/current-state.md` (the scratch directory is git-ignored and shared across checkouts, so notes are kept per branch; use `git branch --show-current`). Read any existing note before updating it. Use [scaicme-reporting](../scaicme-reporting/SKILL.md) for creation and revision provenance.
 
 ## Capture What Matters Now
 

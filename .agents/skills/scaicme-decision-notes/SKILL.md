@@ -5,7 +5,7 @@ description: Record scAICME design or scientific reasoning that would otherwise 
 
 # Lightweight Decision Notes
 
-Use `.agents/scratch/knowledge/decision-<topic>.md` when the reasoning behind a choice will help later work. Follow [scaicme-reporting](../scaicme-reporting/SKILL.md) for provenance. Read an existing topic note before adding another.
+Use `.agents/scratch/knowledge/<branch>/decision-<topic>.md` (or the top-level `knowledge/` directory for cross-branch decisions) when the reasoning behind a choice will help later work. Follow [scaicme-reporting](../scaicme-reporting/SKILL.md) for provenance. Read an existing topic note before adding another.
 
 ## Explain the Choice
 
