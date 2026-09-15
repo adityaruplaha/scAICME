@@ -12,8 +12,7 @@ import scanpy as sc
 from anndata import AnnData
 
 
-@pytest.fixture
-def synthetic_adata():
+def build_synthetic_adata() -> AnnData:
     """
     Create a 1000 cells x 80 genes synthetic AnnData object with injected signals for 8 classes.
 
@@ -78,25 +77,29 @@ def synthetic_adata():
 
 
 @pytest.fixture
-def marker_dict():
-    """
-    Create a marker gene dictionary for 8 classes with partially overlapping genes.
+def synthetic_adata():
+    """Function-scoped copy of :func:`build_synthetic_adata`."""
+    return build_synthetic_adata()
 
-    Classes A and B: overlapping on gene_2
-    Classes C and D: overlapping on gene_6
-    Classes E and F: overlapping on gene_10
-    Classes G and H: overlapping on gene_14
-    """
-    return {
-        "Class A": ["gene_0", "gene_1", "gene_2"],
-        "Class B": ["gene_2", "gene_3", "gene_4"],
-        "Class C": ["gene_4", "gene_5", "gene_6"],
-        "Class D": ["gene_6", "gene_7", "gene_8"],
-        "Class E": ["gene_8", "gene_9", "gene_10"],
-        "Class F": ["gene_10", "gene_11", "gene_12"],
-        "Class G": ["gene_12", "gene_13", "gene_14"],
-        "Class H": ["gene_14", "gene_15", "gene_16"],
-    }
+
+# Marker gene dictionary for 8 classes with partially overlapping genes.
+# Classes A and B overlap on gene_2, C and D on gene_6, E and F on gene_10, G and H on gene_14.
+MARKER_DICT = {
+    "Class A": ["gene_0", "gene_1", "gene_2"],
+    "Class B": ["gene_2", "gene_3", "gene_4"],
+    "Class C": ["gene_4", "gene_5", "gene_6"],
+    "Class D": ["gene_6", "gene_7", "gene_8"],
+    "Class E": ["gene_8", "gene_9", "gene_10"],
+    "Class F": ["gene_10", "gene_11", "gene_12"],
+    "Class G": ["gene_12", "gene_13", "gene_14"],
+    "Class H": ["gene_14", "gene_15", "gene_16"],
+}
+
+
+@pytest.fixture
+def marker_dict():
+    """Fresh copy of :data:`MARKER_DICT`."""
+    return {k: list(v) for k, v in MARKER_DICT.items()}
 
 
 @pytest.fixture

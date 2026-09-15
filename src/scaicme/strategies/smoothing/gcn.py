@@ -265,7 +265,9 @@ class GCNSmoothing(BaseLabelingStrategy):
             is_confident = (margins >= self.margin) & (top_scores >= self.min_score)
 
         best_match_idx = np.argmax(Y_t, axis=1)
-        best_match_names = pd.Series([cell_types[idx] for idx in best_match_idx], index=adata.obs_names)
+        best_match_names = pd.Series(
+            [cell_types[idx] for idx in best_match_idx], index=adata.obs_names
+        )
         final_labels = pd.Series("unknown", index=adata.obs_names, dtype=str)
 
         if self.target_frac is not None:
@@ -283,12 +285,14 @@ class GCNSmoothing(BaseLabelingStrategy):
             ]
 
             if eligible_types:
-                quotas: Dict[str, int] = {col: min_cells for col in eligible_types}
+                quotas: Dict[str, int] = dict.fromkeys(eligible_types, min_cells)
                 base_total = sum(quotas.values())
 
                 if total_budget > base_total:
                     rem_budget = total_budget - base_total
-                    total_avail = sum(len(candidates_per_type[col]) - min_cells for col in eligible_types)
+                    total_avail = sum(
+                        len(candidates_per_type[col]) - min_cells for col in eligible_types
+                    )
                     if total_avail > 0:
                         for col in eligible_types:
                             avail = len(candidates_per_type[col]) - min_cells
@@ -320,7 +324,9 @@ class GCNSmoothing(BaseLabelingStrategy):
                     if q <= 0:
                         continue
                     cands = candidates_per_type[col]
-                    sorted_cands = sorted(cands, key=lambda idx: diffused_df.loc[idx, col], reverse=True)
+                    sorted_cands = sorted(
+                        cands, key=lambda idx: diffused_df.loc[idx, col], reverse=True
+                    )
                     final_labels.loc[sorted_cands[:q]] = col
         else:
             confident_mask = pd.Series(is_confident, index=adata.obs_names)

@@ -19,11 +19,15 @@ class ConsensusVoting(BaseLabelingStrategy):
     ----------
     keys : List[str]
         A list of column names in `adata.obs` containing the labels to aggregate.
-    majority_fraction : float, default 0.66
-        The fraction of valid (known) votes required to assign a consensus label.
+    majority_fraction : float | None, default 0.66
+        The agreement fraction required to assign a consensus label.
         - $0.51$ = Simple majority
         - $0.66$ = Supermajority (e.g., 2 out of 3)
         - $1.00$ = Unanimous agreement required
+        - ``None`` = Plurality: the most common valid vote always wins.
+    fraction_of : {"valid", "all"}, default "valid"
+        Denominator of the agreement fraction: the number of valid (non-unknown) votes
+        for the cell, or the total number of voters in `keys`.
     unknown_label : str, default 'unknown'
         The string used to denote an unlabeled or abstained cell.
     """
@@ -31,15 +35,19 @@ class ConsensusVoting(BaseLabelingStrategy):
     def __init__(
         self,
         keys: List[str],
-        majority_fraction: float = 0.66,
+        majority_fraction: float | None = 0.66,
+        fraction_of: str = "valid",
         unknown_label: str = "unknown",
         **kwargs,
     ):
         if not keys:
             raise ValueError("Must provide at least one key for consensus voting.")
+        if fraction_of not in ("valid", "all"):
+            raise ValueError("fraction_of must be 'valid' or 'all'.")
 
         self.keys = keys
         self.majority_fraction = majority_fraction
+        self.fraction_of = fraction_of
         self.unknown_label = unknown_label
 
     @property
@@ -54,6 +62,7 @@ class ConsensusVoting(BaseLabelingStrategy):
 
         # Extract the voting block
         votes_df = adata.obs[self.keys].astype(str)
+        n_voters = len(self.keys)
 
         # 2. Voting Logic
         # For ~100k cells and ~4 voters, apply with a row-wise parser is highly efficient.
@@ -70,8 +79,9 @@ class ConsensusVoting(BaseLabelingStrategy):
             top_label, top_count = counts.most_common(1)[0]
 
             # Check if the winner meets the required supermajority
-            fraction = top_count / len(valid_votes)
-            if fraction >= self.majority_fraction:
+            denominator = len(valid_votes) if self.fraction_of == "valid" else n_voters
+            fraction = top_count / denominator
+            if self.majority_fraction is None or fraction >= self.majority_fraction:
                 return top_label, fraction, len(valid_votes)
 
             return self.unknown_label, fraction, len(valid_votes)
@@ -100,5 +110,6 @@ class ConsensusVoting(BaseLabelingStrategy):
                 "input_keys": self.keys,
                 "fraction_assigned": float(is_confident.mean()),
                 "majority_threshold": self.majority_fraction,
+                "fraction_of": self.fraction_of,
             },
         )

@@ -1,9 +1,11 @@
+from collections import Counter
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.cluster import KMeans
+from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import StandardScaler
 
 from ..base import LabelingResult
@@ -13,6 +15,11 @@ from .ml_base import BaseMLPropagation
 class KMeansPropagation(BaseMLPropagation):
     """
     Propagates labels using K-Means clustering followed by majority-vote seed assignment.
+
+    All cells are clustered in feature space. Each cluster takes the majority label of
+    the seeds it contains; the cluster's confidence is that majority's share of the
+    whole cluster (seed purity over all members). A cluster with no seeds is assigned
+    the class whose seed centroid is nearest to the cluster center, with confidence 0.
 
     Parameters
     ----------
@@ -25,8 +32,12 @@ class KMeansPropagation(BaseMLPropagation):
     keep_seeds : bool, default True
         Whether to keep seed labels unchanged in the final output.
     n_clusters : int | None, default None
-        Total number of clusters to form. If `None`, defaults to the number of unique
-        non-unknown classes discovered in the seed column.
+        Number of clusters to form. If `None`, uses
+        ``min(10, max(8, int(sqrt(n_cells / 2))))``.
+    n_init : int, default 20
+        Number of K-Means initializations.
+    max_iter : int, default 500
+        Maximum K-Means iterations per initialization.
     scale_features : bool, default True
         Whether to standardize the feature matrix (`StandardScaler`) across all cells prior
         to K-Means clustering.
@@ -49,6 +60,8 @@ class KMeansPropagation(BaseMLPropagation):
         unknown_label: str = "unknown",
         keep_seeds: bool = True,
         n_clusters: int | None = None,
+        n_init: int = 20,
+        max_iter: int = 500,
         scale_features: bool = True,
         random_state: int | None = None,
         min_seed_conf: float = 0.0,
@@ -69,6 +82,8 @@ class KMeansPropagation(BaseMLPropagation):
             **kwargs,
         )
         self.n_clusters = n_clusters
+        self.n_init = n_init
+        self.max_iter = max_iter
         self.scale_features = scale_features
         self.random_state = random_state
 
@@ -80,48 +95,54 @@ class KMeansPropagation(BaseMLPropagation):
         X, X_train, y_train, y_raw, is_labeled = self._prepare_data(adata)
 
         if self.scale_features:
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            X_scaled = StandardScaler().fit_transform(X)
         else:
             X_scaled = X
 
-        if self.n_clusters is not None:
-            n_clusters = self.n_clusters
-        else:
-            unique_classes = np.unique(y_train)
-            n_clusters = len(unique_classes)
-            if n_clusters == 0:
-                raise ValueError("No valid classes found in seed data to infer n_clusters.")
+        n_clusters = self.n_clusters
+        if n_clusters is None:
+            n_clusters = min(10, max(8, int(np.sqrt(adata.n_obs / 2))))
 
-        kmeans = KMeans(n_clusters=n_clusters, random_state=self.random_state, n_init="auto")
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=self.random_state,
+            n_init=self.n_init,
+            max_iter=self.max_iter,
+        )
         cluster_ids = kmeans.fit_predict(X_scaled)
 
-        # Majority vote matching per cluster
-        preds = np.full(adata.n_obs, self.unknown_label, dtype=object)
+        # Seed-class centroids (in the clustered feature space) for seedless clusters.
         is_labeled_arr = is_labeled.to_numpy()
         y_raw_arr = y_raw.to_numpy()
+        known_types = np.unique(y_train)
+        centroids = np.vstack(
+            [X_scaled[is_labeled_arr & (y_raw_arr == t)].mean(axis=0) for t in known_types]
+        )
 
-        for k in range(n_clusters):
-            mask = (cluster_ids == k) & is_labeled_arr
-            if np.any(mask):
-                valid_seeds = y_raw_arr[mask]
-                mode_res = pd.Series(valid_seeds).mode()
-                if not mode_res.empty:
-                    preds[cluster_ids == k] = mode_res.iloc[0]
+        cluster_to_type: dict[int, str] = {}
+        cluster_conf: dict[int, float] = {}
+        for k in np.unique(cluster_ids):
+            members = np.where(cluster_ids == k)[0]
+            seeds_in_k = y_raw_arr[members][is_labeled_arr[members]]
+            if len(seeds_in_k) > 0:
+                # Counter keeps first-seen order on ties, matching a sequential vote.
+                maj_label, maj_count = Counter(seeds_in_k).most_common(1)[0]
+                cluster_to_type[k] = maj_label
+                cluster_conf[k] = maj_count / len(members)
+            else:
+                nearest = pairwise_distances(
+                    kmeans.cluster_centers_[k].reshape(1, -1), centroids
+                ).argmin()
+                cluster_to_type[k] = known_types[nearest]
+                cluster_conf[k] = 0.0
 
-        # Calculate pseudo-probability membership confidence based on distance to cluster centers
-        distances = kmeans.transform(X_scaled)
-        # Shift negative distances if any or use exponential similarity
-        sim = np.exp(-distances + np.min(distances, axis=1, keepdims=True))
-        probs = sim / np.sum(sim, axis=1, keepdims=True)
-        max_probs = probs.max(axis=1)
-
-        # Zero confidence for clusters assigned to unknown_label
-        max_probs[preds == self.unknown_label] = 0.0
+        preds = np.array([cluster_to_type[k] for k in cluster_ids], dtype=object)
+        max_probs = np.array([cluster_conf[k] for k in cluster_ids], dtype=float)
 
         final_labels = pd.Series(preds, index=adata.obs_names)
         final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)
 
+        distances = kmeans.transform(X_scaled)
         return LabelingResult(
             adata=adata,
             strategy=self,
@@ -133,6 +154,7 @@ class KMeansPropagation(BaseMLPropagation):
             obsm={"cluster_distances": pd.DataFrame(distances, index=adata.obs_names)},
             uns={
                 "cluster_centers": kmeans.cluster_centers_,
+                "n_clusters": int(n_clusters),
                 "fraction_propagated": float((~is_labeled).mean()),
             },
         )

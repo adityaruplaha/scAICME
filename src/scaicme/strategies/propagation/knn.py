@@ -1,6 +1,5 @@
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.neighbors import KNeighborsClassifier
@@ -76,9 +75,8 @@ class KNNPropagation(BaseMLPropagation):
         clf = KNeighborsClassifier(n_neighbors=n_neighbors, weights=self.weights)
         clf.fit(X_train, y_train)
 
-        preds = clf.predict(X)
         probs = clf.predict_proba(X)
-        max_probs = probs.max(axis=1)
+        preds, max_probs = self._labels_from_proba(probs, clf.classes_)
 
         final_labels = pd.Series(preds, index=adata.obs_names)
         final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)

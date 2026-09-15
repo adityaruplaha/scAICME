@@ -35,6 +35,8 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         both winner-takes-all and quota-based label assignment.
     use_raw : bool, default True
         Whether to calculate scores or thresholds on `adata.raw` if present.
+    unknown_label : str, default "unknown"
+        Label assigned to cells that receive no seed.
     """
 
     _repr_exclude: Set[str] = {"markers"}
@@ -46,6 +48,7 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         min_cells_per_type: int | None = None,
         min_score: float | None = None,
         use_raw: bool = True,
+        unknown_label: str = "unknown",
         **kwargs: Any,
     ) -> None:
         self.markers = markers
@@ -53,6 +56,7 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         self.min_cells_per_type = min_cells_per_type
         self.min_score = min_score
         self.use_raw = use_raw
+        self.unknown_label = unknown_label
 
     @property
     @abstractmethod
@@ -104,7 +108,7 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         has_match = pass_mask.any(axis=1)
         best_match = scores_df.idxmax(axis=1)
 
-        final_labels = pd.Series("unknown", index=scores_df.index, dtype=str)
+        final_labels = pd.Series(self.unknown_label, index=scores_df.index, dtype=str)
 
         if self.target_frac is None:
             # Winner takes all among cells passing thresholds
@@ -118,7 +122,7 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
                 has_match=has_match,
             )
 
-        is_confident = final_labels != "unknown"
+        is_confident = final_labels != self.unknown_label
         uns_payload: Dict[str, Any] = {
             "thresholds": thresholds,
             "fraction_assigned": float(is_confident.mean()),
@@ -161,7 +165,7 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
         pd.Series
             Series of assigned cell labels (either cell type name or 'unknown').
         """
-        final_labels = pd.Series("unknown", index=scores_df.index, dtype=str)
+        final_labels = pd.Series(self.unknown_label, index=scores_df.index, dtype=str)
         n_total = len(scores_df)
         total_budget = int(round(n_total * self.target_frac))
         min_cells = self.min_cells_per_type if self.min_cells_per_type is not None else 0
@@ -174,14 +178,16 @@ class BaseSeedingStrategy(BaseLabelingStrategy):
 
         # Filter out types with fewer than min_cells eligible candidates
         eligible_types = [
-            col for col, cands in candidates_per_type.items() if len(cands) >= min_cells and len(cands) > 0
+            col
+            for col, cands in candidates_per_type.items()
+            if len(cands) >= min_cells and len(cands) > 0
         ]
 
         if not eligible_types:
             return final_labels
 
         # Calculate quotas per eligible cell type
-        quotas: Dict[str, int] = {col: min_cells for col in eligible_types}
+        quotas: Dict[str, int] = dict.fromkeys(eligible_types, min_cells)
         base_total = sum(quotas.values())
 
         if total_budget > base_total:

@@ -1,6 +1,5 @@
 from typing import Any, Dict
 
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.preprocessing import StandardScaler
@@ -30,8 +29,8 @@ class SVMPropagation(BaseMLPropagation):
         Regularization parameter. Smaller values increase the regularization strength.
     gamma : str or float, default "scale"
         Kernel coefficient for "rbf", "poly" and "sigmoid".
-    class_weight : dict | None, default None
-        Class weights to handle class imbalance.
+    class_weight : dict | str | None, default None
+        Class weights to handle class imbalance (e.g. ``"balanced"``).
     probability : bool, default True
         Whether to enable probability estimates via cross-validation.
     random_state : int | None, default None
@@ -57,7 +56,7 @@ class SVMPropagation(BaseMLPropagation):
         kernel: str = "rbf",
         c: float = 1.0,
         gamma: str | float = "scale",
-        class_weight: Dict[str, Any] | None = None,
+        class_weight: Dict[str, Any] | str | None = None,
         probability: bool = True,
         random_state: int | None = None,
         scale_features: bool = True,
@@ -108,19 +107,20 @@ class SVMPropagation(BaseMLPropagation):
         )
         clf.fit(X_train, y_train)
 
-        preds = clf.predict(X)
-        final_labels = pd.Series(preds, index=adata.obs_names)
-
         obs = {}
         obsm = {}
         if self.probability or (self.min_conf > 0.0):
+            # Labels come from the same probabilities as the confidence (see ml_base).
             probs = clf.predict_proba(X)
-            max_probs = probs.max(axis=1)
+            preds, max_probs = self._labels_from_proba(probs, clf.classes_)
+            final_labels = pd.Series(preds, index=adata.obs_names)
             obs["confidence"] = pd.Series(max_probs, index=adata.obs_names)
             obsm["probabilities"] = pd.DataFrame(probs, index=adata.obs_names, columns=clf.classes_)
             final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)
-        elif self.keep_seeds:
-            final_labels[is_labeled] = y_raw[is_labeled]
+        else:
+            final_labels = pd.Series(clf.predict(X), index=adata.obs_names)
+            if self.keep_seeds:
+                final_labels[is_labeled] = y_raw[is_labeled]
 
         return LabelingResult(
             adata=adata,

@@ -6,6 +6,7 @@ from .propagation.nearest_centroid import NearestCentroidPropagation
 from .propagation.neural_network import NeuralNetworkPropagation
 from .propagation.random_forest import RandomForestPropagation
 from .propagation.svm import SVMPropagation
+from .seeding.dpgmm import DPGMMSeeding
 from .seeding.otsu_adaptive import OtsuAdaptiveSeeding
 from .seeding.otsu_scored_adaptive import OtsuScoredAdaptiveSeeding
 from .seeding.qcq_adaptive import QCQAdaptiveSeeding
@@ -16,6 +17,7 @@ from .smoothing.gcn import GCNSmoothing
 __all__ = [
     "BaseLabelingStrategy",
     "LabelingResult",
+    "DPGMMSeeding",
     "QCQAdaptiveSeeding",
     "QCQScoredAdaptiveSeeding",
     "OtsuAdaptiveSeeding",

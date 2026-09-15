@@ -11,6 +11,17 @@ from anndata import AnnData
 ICME_LABEL_PREFIX = "_icme_label"  # Default prefix for storing results into AnnData
 
 
+def _h5ad_safe(value: Any) -> Any:
+    """Convert tuples to lists (recursively) so parameters survive ``write_h5ad``."""
+    if isinstance(value, tuple):
+        return [_h5ad_safe(v) for v in value]
+    if isinstance(value, list):
+        return [_h5ad_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _h5ad_safe(v) for k, v in value.items()}
+    return value
+
+
 @dataclass
 class LabelingResult:
     """A container for the results of a cell labeling strategy execution.
@@ -105,7 +116,7 @@ class LabelingResult:
         self.adata.uns[f"{key}_params"] = {
             "strategy": self.strategy.name,
             "params": {
-                k: v
+                k: _h5ad_safe(v)
                 for k, v in self.strategy.__dict__.items()
                 if not k.startswith("_")
                 # Exclude large/uninformative parameters

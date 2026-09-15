@@ -580,4 +580,3 @@ class TestPropagationParameters:
         # Should run without error on sliced features
         tl.label(synthetic_adata_with_seeds, strategy, key_added="svm_max_pcs")
         assert "svm_max_pcs" in synthetic_adata_with_seeds.obs
-

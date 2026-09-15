@@ -75,6 +75,20 @@ class BaseMLPropagation(BaseLabelingStrategy, ABC):
 
         return X, X_train, y_train, y_raw, is_labeled
 
+    @staticmethod
+    def _labels_from_proba(
+        probs: np.ndarray, classes: np.ndarray | pd.Index | list
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Derive predicted labels and confidences from one probability matrix.
+
+        Using ``argmax`` of the same matrix that supplies the confidence keeps the
+        label and its confidence consistent (``SVC.predict`` can disagree with
+        ``predict_proba`` when Platt scaling is enabled).
+        """
+        probs = np.asarray(probs)
+        preds = np.asarray(classes, dtype=object)[probs.argmax(axis=1)]
+        return preds, probs.max(axis=1)
+
     def _apply_min_conf(
         self,
         final_labels: pd.Series,

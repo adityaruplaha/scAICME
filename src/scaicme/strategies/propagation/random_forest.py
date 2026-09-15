@@ -1,6 +1,5 @@
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.ensemble import RandomForestClassifier
@@ -25,6 +24,16 @@ class RandomForestPropagation(BaseMLPropagation):
         Whether to keep seed labels unchanged in the final output.
     n_estimators : int, default 100
         Number of trees in the forest.
+    max_depth : int | None, default None
+        Maximum tree depth; ``None`` grows trees until leaves are pure.
+    min_samples_leaf : int | float, default 1
+        Minimum number (or fraction) of samples required at a leaf node.
+    max_features : str | int | float | None, default "sqrt"
+        Number of features considered per split.
+    class_weight : dict | str | None, default None
+        Class weights (e.g. ``"balanced"`` or ``"balanced_subsample"``).
+    n_jobs : int, default -1
+        Number of parallel jobs used by the forest.
     random_state : int | None, default None
         Random seed for reproducibility.
     min_seed_conf : float, default 0.0
@@ -44,6 +53,11 @@ class RandomForestPropagation(BaseMLPropagation):
         unknown_label: str = "unknown",
         keep_seeds: bool = True,
         n_estimators: int = 100,
+        max_depth: int | None = None,
+        min_samples_leaf: int | float = 1,
+        max_features: str | int | float | None = "sqrt",
+        class_weight: dict | str | None = None,
+        n_jobs: int = -1,
         random_state: int | None = None,
         min_seed_conf: float = 0.0,
         conf_key: str = "max_confidence",
@@ -63,6 +77,11 @@ class RandomForestPropagation(BaseMLPropagation):
             **kwargs,
         )
         self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
+        self.max_features = max_features
+        self.class_weight = class_weight
+        self.n_jobs = n_jobs
         self.random_state = random_state
 
     @property
@@ -74,14 +93,17 @@ class RandomForestPropagation(BaseMLPropagation):
 
         clf = RandomForestClassifier(
             n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            min_samples_leaf=self.min_samples_leaf,
+            max_features=self.max_features,
+            class_weight=self.class_weight,
+            n_jobs=self.n_jobs,
             random_state=self.random_state,
-            n_jobs=-1,
         )
         clf.fit(X_train, y_train)
 
-        preds = clf.predict(X)
         probs = clf.predict_proba(X)
-        max_probs = probs.max(axis=1)
+        preds, max_probs = self._labels_from_proba(probs, clf.classes_)
 
         final_labels = pd.Series(preds, index=adata.obs_names)
         final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)

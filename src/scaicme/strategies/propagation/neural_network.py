@@ -1,10 +1,9 @@
 from typing import Any, Tuple
 
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 from ..base import LabelingResult
 from .ml_base import BaseMLPropagation
@@ -38,6 +37,13 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         Maximum number of training iterations.
     early_stopping : bool, default True
         Whether to use early stopping with a validation split.
+    validation_fraction : float, default 0.1
+        Fraction of training data held out for early stopping.
+    n_iter_no_change : int, default 10
+        Number of epochs without improvement before early stopping triggers.
+    scale_features : bool, default False
+        Whether to fit a `StandardScaler` on the training seeds and apply it to all
+        cells before classification.
     random_state : int | None, default None
         Random seed for reproducibility.
     min_seed_conf : float, default 0.0
@@ -63,6 +69,9 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         learning_rate_init: float = 0.001,
         max_iter: int = 300,
         early_stopping: bool = True,
+        validation_fraction: float = 0.1,
+        n_iter_no_change: int = 10,
+        scale_features: bool = False,
         random_state: int | None = None,
         min_seed_conf: float = 0.0,
         conf_key: str = "max_confidence",
@@ -88,6 +97,9 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         self.learning_rate_init = learning_rate_init
         self.max_iter = max_iter
         self.early_stopping = early_stopping
+        self.validation_fraction = validation_fraction
+        self.n_iter_no_change = n_iter_no_change
+        self.scale_features = scale_features
         self.random_state = random_state
 
     @property
@@ -99,6 +111,11 @@ class NeuralNetworkPropagation(BaseMLPropagation):
         label_encoder = LabelEncoder()
         y_train_encoded = label_encoder.fit_transform(y_train)
 
+        if self.scale_features:
+            scaler = StandardScaler()
+            X_train = scaler.fit_transform(X_train)
+            X = scaler.transform(X)
+
         clf = MLPClassifier(
             hidden_layer_sizes=self.hidden_layer_sizes,
             activation=self.activation,
@@ -107,13 +124,14 @@ class NeuralNetworkPropagation(BaseMLPropagation):
             learning_rate_init=self.learning_rate_init,
             max_iter=self.max_iter,
             early_stopping=self.early_stopping,
+            validation_fraction=self.validation_fraction,
+            n_iter_no_change=self.n_iter_no_change,
             random_state=self.random_state,
         )
         clf.fit(X_train, y_train_encoded)
 
-        preds = label_encoder.inverse_transform(clf.predict(X))
         probs = clf.predict_proba(X)
-        max_probs = probs.max(axis=1)
+        preds, max_probs = self._labels_from_proba(probs, label_encoder.classes_)
 
         final_labels = pd.Series(preds, index=adata.obs_names)
         final_labels = self._apply_min_conf(final_labels, max_probs, is_labeled, y_raw)
