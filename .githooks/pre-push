@@ -1,0 +1,14 @@
+#!/bin/sh
+# Refuse to push local-only branches (convention: names starting with "private.").
+# Handles explicit refspecs, "HEAD", and pushes that would create such a branch remotely.
+while read -r local_ref local_sha remote_ref remote_sha; do
+    full_local=$(git rev-parse --symbolic-full-name "$local_ref" 2>/dev/null || echo "$local_ref")
+    for ref in "$full_local" "$remote_ref"; do
+        case "$ref" in
+            refs/heads/private.*)
+                echo "pre-push: refusing to push local-only branch '${ref#refs/heads/}'" >&2
+                exit 1 ;;
+        esac
+    done
+done
+exit 0
