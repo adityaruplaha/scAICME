@@ -12,8 +12,8 @@ wheels/
 # Ruff
 .ruff-cache/
 
-# AI-generated files
-ai-outputs/
+# Local agent working notes (not published)
+.agents/scratch/
 
 # Examples: ignore outputs, keep source scripts
 examples/*/*
