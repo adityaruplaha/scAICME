@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 import numpy as np
 import pandas as pd
@@ -44,7 +44,7 @@ class DPGMMSeeding(BaseSeedingStrategy):
     Across types, each cell takes the type with the highest confidence (ties resolve
     in marker-dictionary order). Types that end up with fewer than
     `max(min_type_size, int(min_type_frac * n_cells))` cells are dropped to
-    `unknown_label`.
+    `unknown_label`, unless the type is listed in `always_keep`.
 
     Note: this strategy assumes the input expression (`adata.X` or `adata.raw.X`) is
     already log-normalized.
@@ -74,6 +74,10 @@ class DPGMMSeeding(BaseSeedingStrategy):
         Minimum fraction of cells expressing any marker for a type to be fitted.
     min_type_size : int, default 20
         Absolute floor on the final number of cells per assigned type.
+    always_keep : Iterable[str] | None, default None
+        Cell types exempt from the size floor, kept however few cells they receive. Use
+        it for types whose rarity is the point, so that the frequency rule cannot delete
+        them; it never adds seeds to a type that received none.
     min_type_frac : float, default 0.001
         Fractional floor on the final number of cells per assigned type.
     covariance_type : str, default "full"
@@ -108,6 +112,7 @@ class DPGMMSeeding(BaseSeedingStrategy):
         min_cell_enrichment: float = 0.05,
         min_type_size: int = 20,
         min_type_frac: float = 0.001,
+        always_keep: Iterable[str] | None = None,
         covariance_type: str = "full",
         max_iter: int = 1000,
         n_init: int = 1,
@@ -130,6 +135,7 @@ class DPGMMSeeding(BaseSeedingStrategy):
         self.min_cell_enrichment = min_cell_enrichment
         self.min_type_size = min_type_size
         self.min_type_frac = min_type_frac
+        self.always_keep = tuple(sorted(always_keep)) if always_keep is not None else ()
         self.covariance_type = covariance_type
         self.max_iter = max_iter
         self.n_init = n_init
@@ -304,7 +310,9 @@ class DPGMMSeeding(BaseSeedingStrategy):
         # Final size floor per assigned type.
         size_floor = max(self.min_type_size, int(self.min_type_frac * n_cells))
         counts = final_labels.value_counts()
-        dropped = [t for t in cell_types if 0 < counts.get(t, 0) < size_floor]
+        dropped = [
+            t for t in cell_types if t not in self.always_keep and 0 < counts.get(t, 0) < size_floor
+        ]
         if dropped:
             drop_mask = final_labels.isin(dropped)
             final_labels[drop_mask] = self.unknown_label
@@ -322,6 +330,7 @@ class DPGMMSeeding(BaseSeedingStrategy):
                 "fraction_assigned": float(is_confident.mean()),
                 "size_floor": int(size_floor),
                 "dropped_types": dropped,
+                "exempt_types": list(self.always_keep),
                 "diagnostics": diagnostics,
             },
         )

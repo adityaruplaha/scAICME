@@ -90,6 +90,13 @@ Deviations worth knowing:
   reproduces both masks.
 - scANVI is attached from the saved CSV rather than retrained, as the notebook does in
   cell 12.
+- **No rare-type carve-out.** The May 2026 PBMC notebook exempted
+  `{"CD4+ T Helper2", "CD34+"}` from the DP size filter, and the July and September
+  versions dropped that exemption; this example follows the September version, so
+  nothing is exempt. It made no difference to the run below (the floor came out at 136,
+  CD4+ T Helper2 cleared it with about 2,357 cells and CD34+ received no seeds at all),
+  but `DPGMMSeeding(always_keep=("CD4+ T Helper2", "CD34+"))` restores the older
+  behaviour if a future run puts either type just under the floor.
 
 ## Parity record (2026-09-28)
 

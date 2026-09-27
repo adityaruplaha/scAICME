@@ -12,7 +12,9 @@ ICME_LABEL_PREFIX = "_icme_label"  # Default prefix for storing results into Ann
 
 
 def _h5ad_safe(value: Any) -> Any:
-    """Convert tuples to lists (recursively) so parameters survive ``write_h5ad``."""
+    """Convert tuples and sets to lists (recursively) so parameters survive ``write_h5ad``."""
+    if isinstance(value, (set, frozenset)):
+        return sorted(_h5ad_safe(v) for v in value)
     if isinstance(value, tuple):
         return [_h5ad_safe(v) for v in value]
     if isinstance(value, list):

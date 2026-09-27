@@ -76,6 +76,40 @@ class TestDPGMMSeeding:
         assert (synthetic_adata.obs["seeds"] == "unknown").all()
         assert (synthetic_adata.obs["seeds_max_score"] == 0).all()
 
+    def test_always_keep_exempts_types_from_the_size_floor(self, synthetic_adata, marker_dict):
+        """A listed type survives a floor that would otherwise delete it."""
+        floored = strategies.DPGMMSeeding(markers=marker_dict, min_type_size=10_000, **SETTINGS)
+        tl.label(synthetic_adata, floored, key_added="dropped")
+        assert (synthetic_adata.obs["dropped"] == "unknown").all()
+        rescued = list(synthetic_adata.uns["dropped_uns"]["dropped_types"][:2])
+        assert rescued, "expected the floor to drop at least one type"
+
+        exempt = strategies.DPGMMSeeding(
+            markers=marker_dict, min_type_size=10_000, always_keep=rescued, **SETTINGS
+        )
+        tl.label(synthetic_adata, exempt, key_added="kept")
+        uns = synthetic_adata.uns["kept_uns"]
+        assert uns["exempt_types"] == sorted(rescued)
+        assert not set(uns["dropped_types"]) & set(rescued)
+        kept_labels = set(synthetic_adata.obs["kept"]) - {"unknown"}
+        assert kept_labels == set(rescued)
+        # Exemption keeps a type, it does not invent seeds for one.
+        for t in rescued:
+            assert (synthetic_adata.obs["kept"] == t).sum() > 0
+
+    def test_always_keep_survives_h5ad_round_trip(self, synthetic_adata, marker_dict, tmp_path):
+        import anndata as ad
+
+        strategy = strategies.DPGMMSeeding(
+            markers=marker_dict, always_keep=("Class A", "Class B"), **SETTINGS
+        )
+        tl.label(synthetic_adata, strategy, key_added="seeds")
+        path = tmp_path / "out.h5ad"
+        with ad.settings.override(allow_write_nullable_strings=True):
+            synthetic_adata.write_h5ad(path)
+        back = ad.read_h5ad(path)
+        assert list(back.uns["seeds_params"]["params"]["always_keep"]) == ["Class A", "Class B"]
+
     def test_missing_markers_are_skipped(self, synthetic_adata, marker_dict):
         markers = dict(marker_dict)
         markers["Ghost"] = ["nope_1", "nope_2", "nope_3"]

@@ -287,7 +287,7 @@ Use any (or many!) of the following strategies to generate independent seed labe
 
 With `target_frac`, the QCQ/Otsu seeders allocate an exact labeling budget: every type with at least `min_cells_per_type` eligible cells gets that many seeds, the remaining budget is shared in proportion to each type's surplus of eligible cells, and the highest-scoring eligible cells fill each quota. Their per-type score matrix is stored in `obsm["<key>_scores"]` and can feed `GCNSeeding` (`initial_scores_key="<key>_scores"`).
 
-`DPGMMSeeding` needs no prior scores. It skips a type whose markers are mostly absent or barely expressed, gates mixture components by mean marker score and size, reconciles types by confidence, and drops types that end up below `max(min_type_size, min_type_frac * n_cells)` cells. The per-type confidence matrix is stored in `obsm["<key>_scores"]`, the raw marker-activation fractions in `obsm["<key>_marker_scores"]`, and per-type fit diagnostics in `uns["<key>_uns"]["diagnostics"]`.
+`DPGMMSeeding` needs no prior scores. It skips a type whose markers are mostly absent or barely expressed, gates mixture components by mean marker score and size, reconciles types by confidence, and drops types that end up below `max(min_type_size, min_type_frac * n_cells)` cells, except those named in `always_keep`, which are exempt from that floor however few cells they receive (use it for types whose rarity is the point). The per-type confidence matrix is stored in `obsm["<key>_scores"]`, the raw marker-activation fractions in `obsm["<key>_marker_scores"]`, and per-type fit diagnostics in `uns["<key>_uns"]["diagnostics"]`.
 
 ```python
 seeder = icme.strategies.DPGMMSeeding(
