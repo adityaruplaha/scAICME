@@ -21,6 +21,7 @@ Input layout (``SCAICME_PBMC68K_DIR``, default ``data/pbmc68k``)::
 
     <dir>/filtered_matrices_mex/hg19/{matrix.mtx,genes.tsv,barcodes.tsv}
     <dir>/pbmc_annot.csv
+    <dir>/cell_type_true.csv    # optional; the manual ground truth, preferred reference
     <dir>/label_scanvi.csv      # optional, attached when present
 """
 
@@ -42,6 +43,7 @@ DATA_DIR = Path(os.environ.get("SCAICME_PBMC68K_DIR", "data/pbmc68k"))
 MTX_DIR = DATA_DIR / "filtered_matrices_mex" / "hg19"
 ANNOT_CSV = DATA_DIR / "pbmc_annot.csv"
 SCANVI_CSV = DATA_DIR / "label_scanvi.csv"
+TRUTH_CSV = DATA_DIR / "cell_type_true.csv"
 OUTPUT_DIR = Path("examples/pbmc68k/outputs")
 SAVE_H5AD = True
 # Silhouette is O(n^2) in the number of cells; set False to skip the cluster-quality table.
@@ -50,9 +52,12 @@ CLUSTER_QUALITY = True
 UNLABELED = "unlabeled"
 SEED_KEY = "weak_label"
 CONSENSUS_KEY = "label_consensus"
-# The notebook's metrics cell reads "cell_type_true", which nothing in it creates; the
-# loader produces this column instead, so it is the reference used here.
-REF_KEY = "pseudo_cell_type"
+# The notebook evaluates against "cell_type_true", the manually curated ground-truth
+# annotation, which is supplied to it from outside rather than built in the notebook.
+# It is used when available (see TRUTH_CSV); otherwise the loader's own annotation
+# column stands in and the metrics are against that instead.
+TRUTH_KEY = "cell_type_true"
+FALLBACK_REF_KEY = "pseudo_cell_type"
 RANDOM_STATE = 42
 
 # Marker panels (the notebook's SKIN_MARKERS, which hold PBMC panels).
@@ -125,6 +130,7 @@ METHOD_KEYS = ["label_svm_rbf", "label_kmeans", "label_knn", "label_rf", "label_
 def main() -> None:
     adata = load_pbmc68k()
     adata = preprocess(adata)
+    attach_ground_truth(adata)
     run_seeding(adata)
     prepare_features(adata)
     run_propagation(adata)
@@ -163,7 +169,7 @@ def load_pbmc68k() -> ad.AnnData:
             adata.obs[safe_col] = pd.Categorical(df[col].astype(str).values)
         print("Attached columns to adata.obs:", list(df.columns))
         first = str(df.columns[0]).strip() or "org_annot"
-        adata.obs = adata.obs.rename(columns={first: REF_KEY})
+        adata.obs = adata.obs.rename(columns={first: FALLBACK_REF_KEY})
     else:
         print(f"[warn] {ANNOT_CSV} not found; reference metrics will be skipped.")
     return adata
@@ -173,10 +179,35 @@ def preprocess(adata: ad.AnnData) -> ad.AnnData:
     adata = icme.pp.qc_filter(adata)
     icme.pp.normalize_log1p(adata)
     print(f"READY | cells={adata.n_obs:,} genes={adata.n_vars:,}")
-    if REF_KEY in adata.obs:
-        adata.obs[REF_KEY] = adata.obs[REF_KEY].astype(str).astype("category")
-        print(adata.obs[REF_KEY].value_counts())
+    if FALLBACK_REF_KEY in adata.obs:
+        adata.obs[FALLBACK_REF_KEY] = adata.obs[FALLBACK_REF_KEY].astype(str).astype("category")
+        print(adata.obs[FALLBACK_REF_KEY].value_counts())
     return adata
+
+
+def attach_ground_truth(adata: ad.AnnData) -> None:
+    """Attach the manual ground-truth annotation when it has been supplied."""
+    if not TRUTH_CSV.exists():
+        print(f"\n[info] {TRUTH_CSV} not found; metrics will use {FALLBACK_REF_KEY}.")
+        return
+    truth = pd.read_csv(TRUTH_CSV)
+    column = TRUTH_KEY if TRUTH_KEY in truth.columns else truth.columns[0]
+    if len(truth) != adata.n_obs:
+        raise ValueError(
+            f"{TRUTH_CSV} has {len(truth)} rows but {adata.n_obs} cells remain after QC. "
+            "Attach it by row order over all cells before QC, or supply it with a "
+            "barcode column so it can be joined."
+        )
+    adata.obs[TRUTH_KEY] = pd.Categorical(truth[column].astype(str).values)
+    print(f"\nAttached {TRUTH_KEY} from {TRUTH_CSV}")
+
+
+def reference_key(adata: ad.AnnData) -> str | None:
+    """The ground truth when present, else the loader's annotation, else nothing."""
+    for key in (TRUTH_KEY, FALLBACK_REF_KEY):
+        if key in adata.obs:
+            return key
+    return None
 
 
 def run_seeding(adata: ad.AnnData) -> None:
@@ -315,15 +346,16 @@ def evaluate(adata: ad.AnnData) -> None:
     """Agreement with the reference annotation, and cluster quality of the consensus."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    if REF_KEY in adata.obs:
+    ref_key = reference_key(adata)
+    if ref_key is not None:
         pred_keys = [CONSENSUS_KEY, "label_knn", "label_rf", "label_kmeans", "label_svm_rbf",
                      "label_mlp"]  # fmt: skip
         metrics = icme.evaluation.compare_many(
-            adata, pred_keys, REF_KEY, ignore_labels=(UNLABELED, "Unknown")
+            adata, pred_keys, ref_key, ignore_labels=(UNLABELED, "Unknown")
         )
         cols = ["pred_col", "coverage_pred", "coverage_both", "labeled_ARI", "labeled_acc",
                 "labeled_specificity_macro", "labeled_sensitivity_macro", "labeled_n_eval"]  # fmt: skip
-        print("\nAgreement with the reference annotation:")
+        print(f"\nAgreement with the reference annotation ({ref_key}):")
         print(metrics[cols].sort_values("labeled_ARI", ascending=False).to_string(index=False))
         metrics.to_csv(OUTPUT_DIR / "classwise_metrics.csv", index=False)
         print(f"Saved: {OUTPUT_DIR / 'classwise_metrics.csv'}")
@@ -341,7 +373,8 @@ def export(adata: ad.AnnData) -> None:
     cols = [
         c
         for c in [
-            REF_KEY,
+            TRUTH_KEY,
+            FALLBACK_REF_KEY,
             SEED_KEY,
             f"{SEED_KEY}_max_score",
             *METHOD_KEYS,

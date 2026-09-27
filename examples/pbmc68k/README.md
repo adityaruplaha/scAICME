@@ -15,6 +15,7 @@ load → Method 2 → classifiers → Leiden → metrics → scANVI.
 ```
 data/pbmc68k/filtered_matrices_mex/hg19/{matrix.mtx,genes.tsv,barcodes.tsv}
 data/pbmc68k/pbmc_annot.csv        # one column, attached by row order
+data/pbmc68k/cell_type_true.csv    # optional; the manual ground truth, preferred reference
 data/pbmc68k/label_scanvi.csv      # optional; attached when present
 ```
 
@@ -82,8 +83,11 @@ Deviations worth knowing:
   to a definition left in the kernel from an earlier session. The no-PCA version is the
   one reproduced here, by decision, which means the seed counts below are **not**
   expected to match the stored cell 4 output.
-- The notebook evaluates against `cell_type_true`, a column nothing in it creates; this
-  example uses `pseudo_cell_type` from the loader instead.
+- The notebook evaluates against `cell_type_true`, the manually curated ground-truth
+  annotation, which is supplied to the notebook from outside rather than built inside
+  it. Drop those labels in as `data/pbmc68k/cell_type_true.csv` and the example uses
+  them as the reference; until then it falls back to `pseudo_cell_type` from the
+  loader, and the metrics are against that instead.
 - The notebook's k-means takes its per-cluster majority vote over every labelled seed
   but builds the seedless-cluster fallback centroids only from seeds above 0.3
   confidence. `KMeansPropagation(min_seed_conf=0.0, fallback_min_seed_conf=0.3)`
