@@ -1,31 +1,34 @@
-"""EXAMPLE: PBMC 68k annotation reproducing the PBMC 68k notebook.
+"""EXAMPLE: PBMC 68k annotation reproducing the final PBMC notebook (Sept 2026).
 
-Pipeline, as executed in the notebook:
+Pipeline, as executed in that notebook's saved run:
 
 1. Load the 10x PBMC 68k filtered matrix and attach the reference annotation
-   (``pbmc_annot.csv``, one ``pbmcannot`` column, attached by row order).
+   (one column, attached by row order, renamed to ``pseudo_cell_type``).
 2. Standard QC and log-normalization (``icme.pp``).
-3. Method 1 — per-gene quantile marker scores with quota selection
-   (``QCQAdaptiveSeeding``); its score matrix feeds Method 3.
-4. Method 3 — GCN propagation of those scores over the kNN graph with fixed gates
-   (``GCNSeeding``). Its output is the ``weak_label`` used downstream.
-   (Method 2, DP-GMM seeding, is defined in the notebook but was not executed and
-   its output is overwritten by Method 3; run it with ``RUN_DPGMM = True``.)
-5. SVM / K-Means / KNN / Random Forest / MLP on 15 PCs, then plurality consensus.
-6. Rare/novel flag and agreement metrics against the reference annotation
-   (``ablation_metrics.csv``).
+3. Method 2 — DP-GMM seeding per marker set, fitted on standardised marker expression
+   with no PCA (``DPGMMSeeding``) -> ``weak_label``.
+4. PCA (30 components) and a 15-neighbour graph, then SVM, k-means, KNN, random forest
+   and MLP propagation, and a plurality consensus over the five.
+5. Leiden clustering, agreement metrics against the reference annotation
+   (``classwise_metrics.csv``) and cluster-quality scores
+   (``pbmc_scACIME_cluster_metrics.csv``).
+
+Methods 1 and 3 of that notebook (quota seeding, and quota GCN seeding) are defined
+there but were never executed in the saved run and are not part of this pipeline; the
+package equivalents are ``QCQAdaptiveSeeding(target_frac=...)`` and ``GCNSeeding``.
 
 Input layout (``SCAICME_PBMC68K_DIR``, default ``data/pbmc68k``)::
 
     <dir>/filtered_matrices_mex/hg19/{matrix.mtx,genes.tsv,barcodes.tsv}
     <dir>/pbmc_annot.csv
+    <dir>/label_scanvi.csv      # optional, attached when present
 """
 
-import math
 import os
 from pathlib import Path
 
 import anndata as ad
+import numpy as np
 import pandas as pd
 import scanpy as sc
 
@@ -38,18 +41,21 @@ import scAICME as icme
 DATA_DIR = Path(os.environ.get("SCAICME_PBMC68K_DIR", "data/pbmc68k"))
 MTX_DIR = DATA_DIR / "filtered_matrices_mex" / "hg19"
 ANNOT_CSV = DATA_DIR / "pbmc_annot.csv"
+SCANVI_CSV = DATA_DIR / "label_scanvi.csv"
 OUTPUT_DIR = Path("examples/pbmc68k/outputs")
 SAVE_H5AD = True
-RUN_DPGMM = False
+# Silhouette is O(n^2) in the number of cells; set False to skip the cluster-quality table.
+CLUSTER_QUALITY = True
 
 UNLABELED = "unlabeled"
-REF_KEY = "pseudo_cell_type"
-SCORE_SEED_KEY = "weak_label_quota"  # Method 1 (its scores feed Method 3)
-SEED_KEY = "weak_label"  # Method 3, used for propagation
+SEED_KEY = "weak_label"
 CONSENSUS_KEY = "label_consensus"
+# The notebook's metrics cell reads "cell_type_true", which nothing in it creates; the
+# loader produces this column instead, so it is the reference used here.
+REF_KEY = "pseudo_cell_type"
 RANDOM_STATE = 42
 
-# Notebook cell 5 (named SKIN_MARKERS there; these are PBMC panels).
+# Marker panels (the notebook's SKIN_MARKERS, which hold PBMC panels).
 PBMC_MARKERS = {
     "CD8+/CD45RA+ Naive Cytotoxic": [
         "CD3D", "CD3E", "TRAC", "CD8A", "CD8B", "CCR7", "LEF1", "TCF7", "LTB", "IL7R", "MAL", "LST1",
@@ -88,32 +94,27 @@ PBMC_MARKERS = {
     ],
 }  # fmt: skip
 
-# Method 1 (cell 7).
-QUOTA = {"quantile": 0.6, "target_frac": 0.55, "min_cells_per_type": 50, "min_score": 0.2}
-# Method 3 (cell 14).
-GCN = {
-    "target_frac": 0.55,
-    "min_score": 0.2,
-    "delta": 0.15,
-    "min_cells_per_type_pct": 0.005,
-    "min_cells_floor": 200,
-}
-# Method 2 (cell 11); not executed in the notebook.
-DPGMM = {
-    "per_gene_pos_quantile": 0.8,
-    "cluster_score_min": 0.20,
+# Method 2 seeding, from the notebook's call. n_components is min(100, sqrt(N)) and the
+# post-hoc size floor is max(100, 0.002 N).
+SEEDING = {
+    "per_gene_pos_quantile": 0.4,
+    "cluster_score_min": 0.1,
     "min_cells_cluster": 100,
-    "n_components": 30,
     "weight_concentration_prior": 0.05,
-    "min_cell_enrichment": 0.10,
+    "min_cell_enrichment": 0.05,
+    "min_type_size": 100,
+    "min_type_frac": 0.002,
     "random_state": RANDOM_STATE,
 }
 
-# Feature space (cell 15): 15 PCs, kNN graph on them.
-N_COMPS = 15
+# Feature space and propagation.
+N_COMPS = 30
 N_NEIGHBORS = 15
-# Reference counts printed by the notebook for the Method 3 seeds (cell 14).
-NOTEBOOK_SEEDS = {"CD19+ B": 3940, "CD14+ Monocyte": 3281, "CD8+ Cytotoxic T": 660, "CD4+/CD45RO+ Memory": 354}  # fmt: skip
+MAX_PCS = 30
+MIN_SEED_CONF = 0.30
+LEIDEN_RESOLUTION = 1.6
+
+METHOD_KEYS = ["label_svm_rbf", "label_kmeans", "label_knn", "label_rf", "label_mlp"]
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +127,11 @@ def main() -> None:
     adata = preprocess(adata)
     run_seeding(adata)
     prepare_features(adata)
-    method_keys = run_propagation(adata)
-    run_consensus(adata, method_keys)
-    evaluate(adata, method_keys)
+    run_propagation(adata)
+    run_consensus(adata)
+    run_leiden(adata)
+    attach_scanvi(adata)
+    evaluate(adata)
     export(adata)
 
 
@@ -177,184 +180,178 @@ def preprocess(adata: ad.AnnData) -> ad.AnnData:
 
 
 def run_seeding(adata: ad.AnnData) -> None:
-    """Method 1 (quota) -> its score matrix -> Method 3 (GCN) -> weak_label."""
-    quota = icme.strategies.QCQAdaptiveSeeding(
+    """Method 2: per-marker-set DP-GMM on standardised marker expression, no PCA."""
+    seeder = icme.strategies.DPGMMSeeding(
         markers=PBMC_MARKERS,
-        min_confidence=QUOTA["min_score"],
+        n_components=min(100, int(np.sqrt(adata.n_obs))),
+        use_raw=False,
         unknown_label=UNLABELED,
-        **QUOTA,
+        verbose=True,
+        **SEEDING,
     )
-    icme.tl.label(adata, quota, key_added=SCORE_SEED_KEY)
-    labeled = (adata.obs[SCORE_SEED_KEY] != UNLABELED).sum()
-    print(
-        f"[quota] Target={QUOTA['target_frac']:.0%} | Achieved={labeled / adata.n_obs:.2%} "
-        f"| labeled={labeled}/{adata.n_obs}"
-    )
-    print(adata.obs[SCORE_SEED_KEY].value_counts())
-
-    if RUN_DPGMM:
-        n = adata.n_obs
-        dpgmm = icme.strategies.DPGMMSeeding(
-            markers=PBMC_MARKERS,
-            unknown_label=UNLABELED,
-            min_type_size=math.ceil(0.02 * n),  # the notebook's 2% keep rule
-            min_type_frac=0.0,
-            verbose=True,
-            **DPGMM,
-        )
-        icme.tl.label(adata, dpgmm, key_added="weak_label_dpgmm")
-
-    # Method 3 needs the kNN graph; the notebook builds it inside gcn_seed_labeling
-    # (PCA 30 comps, 15 neighbors) before cell 15 recomputes PCA with 15 comps.
-    sc.pp.pca(adata, n_comps=30, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30)
-    gcn = icme.strategies.GCNSeeding(
-        markers=PBMC_MARKERS,
-        initial_scores_key=f"{SCORE_SEED_KEY}_scores",
-        unknown_label=UNLABELED,
-        **GCN,
-    )
-    icme.tl.label(adata, gcn, key_added=SEED_KEY)
-    counts = adata.obs[SEED_KEY].value_counts()
-    print("[GCN] final label distribution:")
-    print(counts)
-    print(f"[GCN] labeled fraction: {(adata.obs[SEED_KEY] != UNLABELED).mean():.2%}")
-    comparison = (
-        pd.DataFrame(
-            {
-                "this_run": counts.drop(UNLABELED, errors="ignore"),
-                "notebook": pd.Series(NOTEBOOK_SEEDS),
-            }
-        )
-        .fillna(0)
-        .astype(int)
-    )
-    comparison["diff"] = comparison["this_run"] - comparison["notebook"]
-    print("Parity check of Method 3 seeds against the notebook output:")
-    print(comparison.to_string())
+    icme.tl.label(adata, seeder, key_added=SEED_KEY)
+    uns = adata.uns[f"{SEED_KEY}_uns"]
+    print(f"\n[DP-soft no PCA] size floor={uns['size_floor']}, dropped={uns['dropped_types']}")
+    print(f"[DP-soft no PCA] Final {SEED_KEY} distribution:")
+    print(adata.obs[SEED_KEY].value_counts(normalize=True) * 100)
 
 
 def prepare_features(adata: ad.AnnData) -> None:
-    """Cell 15: PCA(15, arpack) and a 15-neighbor graph on those PCs (overwrites Method 3's)."""
     sc.pp.pca(adata, n_comps=N_COMPS, svd_solver="arpack")
-    sc.pp.neighbors(adata, n_neighbors=N_NEIGHBORS, n_pcs=min(30, adata.obsm["X_pca"].shape[1]))
-    seeds = adata.obs[SEED_KEY].astype(str)
-    known = seeds != UNLABELED
-    print("Known types (seeds):", sorted(seeds[known].unique()), "| n_seeds =", int(known.sum()))
+    sc.pp.neighbors(adata, n_neighbors=N_NEIGHBORS, n_pcs=N_COMPS)
 
 
-def run_propagation(adata: ad.AnnData) -> list[str]:
-    n_types = adata.obs[SEED_KEY].astype(str).pipe(lambda s: s[s != UNLABELED].nunique())
-    common = {"seed_key": SEED_KEY, "unknown_label": UNLABELED}
+def run_propagation(adata: ad.AnnData) -> None:
+    """The notebook's five classifiers, each predicting every cell from the seeds."""
+    common = {
+        "seed_key": SEED_KEY,
+        "unknown_label": UNLABELED,
+        "keep_seeds": False,
+        "max_pcs": MAX_PCS,
+    }
     methods = {
-        # Cell 16: seeds kept, unknown cells predicted, min_conf on predictions only.
         "label_svm_rbf": icme.strategies.SVMPropagation(
             kernel="rbf",
-            c=5.0,
+            c=2.0,
             gamma="scale",
             probability=True,
             class_weight="balanced",
             scale_features=True,
-            keep_seeds=True,
-            min_conf=0.55,
-            random_state=RANDOM_STATE,  # the notebook sets none; fixed here for reproducibility
+            min_seed_conf=MIN_SEED_CONF,
+            min_conf=0.60,
+            random_state=RANDOM_STATE,
             **common,
         ),
-        # Cell 18: k = number of seeded types, default init, clusters mapped by seed majority.
+        # k = min(30, max(10, sqrt(N/2))). The per-cluster vote uses every labelled seed
+        # while the seedless-cluster fallback uses only seeds above 0.3, as in the notebook.
         "label_kmeans": icme.strategies.KMeansPropagation(
-            n_clusters=n_types,
-            n_init="auto",
-            max_iter=300,
+            n_clusters=min(30, max(10, int(np.sqrt(adata.n_obs / 2)))),
+            n_init=20,
+            max_iter=500,
             scale_features=False,
-            keep_seeds=False,
+            min_seed_conf=0.0,
+            fallback_min_seed_conf=0.3,
             min_conf=0.0,
             random_state=RANDOM_STATE,
             **common,
         ),
-        # Cell 20: 3 nearest seeds, distance-weighted, Manhattan metric, all cells predicted.
         "label_knn": icme.strategies.KNNPropagation(
-            n_neighbors=3, weights="distance", p=1, keep_seeds=False, min_conf=0.0, **common
+            n_neighbors=9,
+            weights="distance",
+            p=2,
+            min_seed_conf=MIN_SEED_CONF,
+            min_conf=0.55,
+            **common,
         ),
-        # Cell 22.
         "label_rf": icme.strategies.RandomForestPropagation(
-            n_estimators=300,
-            max_depth=None,
+            n_estimators=500,
+            max_depth=18,
+            min_samples_leaf=5,
+            max_features="sqrt",
             class_weight="balanced_subsample",
             n_jobs=-1,
-            keep_seeds=False,
-            min_conf=0.0,
+            min_seed_conf=MIN_SEED_CONF,
+            min_conf=0.55,
             random_state=RANDOM_STATE,
             **common,
         ),
-        # Cells 24-25: seeds kept, unknown cells predicted, min_conf on predictions only.
         "label_mlp": icme.strategies.NeuralNetworkPropagation(
-            hidden_layer_sizes=(256, 128),
-            alpha=1e-4,
-            max_iter=300,
+            hidden_layer_sizes=(128, 64),
+            alpha=1e-3,
+            learning_rate_init=1e-3,
+            max_iter=400,
             early_stopping=True,
             validation_fraction=0.1,
-            n_iter_no_change=15,
+            n_iter_no_change=20,
             scale_features=True,
-            keep_seeds=True,
-            min_conf=0.55,
+            min_seed_conf=MIN_SEED_CONF,
+            min_conf=0.60,
             random_state=RANDOM_STATE,
             **common,
         ),
     }
     results = icme.tl.label(adata, strategies=methods, n_jobs=1)
-    completed = [k for k in methods if k in results]
-    print("\nAvailable classifier outputs:", completed)
-    if not completed:
-        raise ValueError("No classifier output was generated. Check the seed distribution.")
-    return completed
+    missing = [k for k in methods if k not in results]
+    if missing:
+        raise ValueError(f"Propagation did not produce: {missing}")
+    print("\nClassifier outputs:", list(methods))
 
 
-def run_consensus(adata: ad.AnnData, method_keys: list[str]) -> None:
+def run_consensus(adata: ad.AnnData) -> None:
+    """Plurality vote; agreement is votes divided by the number of classifiers."""
     consensus = icme.strategies.ConsensusVoting(
-        keys=method_keys, majority_fraction=None, fraction_of="all", unknown_label=UNLABELED
+        keys=METHOD_KEYS, majority_fraction=None, fraction_of="all", unknown_label=UNLABELED
     )
     icme.tl.label(adata, consensus, key_added=CONSENSUS_KEY)
     print("\nConsensus:")
     print(adata.obs[CONSENSUS_KEY].value_counts())
 
-    # Cell 30: rare/novel flag.
-    rare = icme.evaluation.flag_rare(
-        adata, CONSENSUS_KEY, f"{CONSENSUS_KEY}_agreement_fraction", max_agreement=0.4
-    )
-    adata.obs["novel_flag"] = rare
-    print(f"\nRare/novel (flagged) cells: {int(rare.sum())} ({rare.mean():.2%})")
+
+def run_leiden(adata: ad.AnnData) -> None:
+    sc.tl.leiden(adata, resolution=LEIDEN_RESOLUTION, key_added="label_leiden")
+    n = adata.obs["label_leiden"].nunique()
+    print(f"\nLeiden clusters (resolution {LEIDEN_RESOLUTION}): {n}")
 
 
-def evaluate(adata: ad.AnnData, method_keys: list[str]) -> None:
-    """Cells 32-34: agreement with the reference annotation."""
-    if REF_KEY not in adata.obs:
+def attach_scanvi(adata: ad.AnnData) -> None:
+    """Attach saved scANVI predictions when the file is present (the notebook reads them)."""
+    if not SCANVI_CSV.exists():
+        print(f"\n[info] {SCANVI_CSV} not found; skipping the scANVI column.")
         return
-    pred_keys = [
-        CONSENSUS_KEY,
-        "label_knn",
-        "label_rf",
-        "label_kmeans",
-        "label_svm_rbf",
-        "label_mlp",
-    ]
-    metrics = icme.evaluation.compare_many(
-        adata, [k for k in pred_keys if k in method_keys or k == CONSENSUS_KEY], REF_KEY,
-        ignore_labels=(UNLABELED, "Unknown"),
-    )  # fmt: skip
-    cols = [
-        "pred_col", "coverage_pred", "coverage_both",
-        "labeled_ARI", "labeled_NMI", "labeled_macroF1", "labeled_acc", "labeled_n_eval",
-    ]  # fmt: skip
-    print("\nAgreement with the reference annotation:")
-    print(metrics[cols].sort_values("labeled_ARI", ascending=False).to_string())
+    pred = pd.read_csv(SCANVI_CSV)
+    if len(pred) != adata.n_obs:
+        print(
+            f"[warn] {SCANVI_CSV} has {len(pred)} rows but {adata.n_obs} cells remain after QC; "
+            "skipping the scANVI column."
+        )
+        return
+    labels = pred["label_scanvi"].astype(str)
+    # The notebook relabels this class after prediction.
+    adata.obs["label_scanvi"] = labels.replace("CD4+ T Helper2", "CD34+").values
+    print(f"\nAttached label_scanvi from {SCANVI_CSV}")
+
+
+def evaluate(adata: ad.AnnData) -> None:
+    """Agreement with the reference annotation, and cluster quality of the consensus."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    metrics.to_csv(OUTPUT_DIR / "ablation_metrics.csv", index=False)
-    print(f"Saved: {OUTPUT_DIR / 'ablation_metrics.csv'}")
+
+    if REF_KEY in adata.obs:
+        pred_keys = [CONSENSUS_KEY, "label_knn", "label_rf", "label_kmeans", "label_svm_rbf",
+                     "label_mlp"]  # fmt: skip
+        metrics = icme.evaluation.compare_many(
+            adata, pred_keys, REF_KEY, ignore_labels=(UNLABELED, "Unknown")
+        )
+        cols = ["pred_col", "coverage_pred", "coverage_both", "labeled_ARI", "labeled_acc",
+                "labeled_specificity_macro", "labeled_sensitivity_macro", "labeled_n_eval"]  # fmt: skip
+        print("\nAgreement with the reference annotation:")
+        print(metrics[cols].sort_values("labeled_ARI", ascending=False).to_string(index=False))
+        metrics.to_csv(OUTPUT_DIR / "classwise_metrics.csv", index=False)
+        print(f"Saved: {OUTPUT_DIR / 'classwise_metrics.csv'}")
+
+    if CLUSTER_QUALITY:
+        print("\nCluster quality (silhouette is O(n^2); this takes a while):")
+        table = pd.DataFrame([icme.evaluation.cluster_quality(adata, CONSENSUS_KEY)])
+        print(table.to_string(index=False))
+        table.to_csv(OUTPUT_DIR / "pbmc_scACIME_cluster_metrics.csv", index=False)
+        print(f"Saved: {OUTPUT_DIR / 'pbmc_scACIME_cluster_metrics.csv'}")
 
 
 def export(adata: ad.AnnData) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    cols = [c for c in [REF_KEY, SEED_KEY, CONSENSUS_KEY, f"{CONSENSUS_KEY}_agreement_fraction", "novel_flag"] if c in adata.obs]  # fmt: skip
+    cols = [
+        c
+        for c in [
+            REF_KEY,
+            SEED_KEY,
+            f"{SEED_KEY}_max_score",
+            *METHOD_KEYS,
+            CONSENSUS_KEY,
+            f"{CONSENSUS_KEY}_agreement_fraction",
+            "label_leiden",
+            "label_scanvi",
+        ]
+        if c in adata.obs
+    ]
     labels_path = OUTPUT_DIR / "pbmc68k_labels.csv"
     adata.obs[cols].to_csv(labels_path, index=True)
     print(f"\nLabels written to {labels_path}")

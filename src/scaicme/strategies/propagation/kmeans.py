@@ -34,6 +34,11 @@ class KMeansPropagation(BaseMLPropagation):
     n_clusters : int | None, default None
         Number of clusters to form. If `None`, uses
         ``min(10, max(8, int(sqrt(n_cells / 2))))``.
+    fallback_min_seed_conf : float | None, default None
+        Confidence floor for the seed set used to place seedless clusters. When given,
+        the candidate types and their centroids come only from seeds whose confidence is
+        strictly greater than this value, while the per-cluster majority vote still uses
+        every labelled seed. Leave as `None` to use the training seed set for both.
     n_init : int | str, default 20
         Number of K-Means initializations (or ``"auto"``).
     max_iter : int, default 500
@@ -60,6 +65,7 @@ class KMeansPropagation(BaseMLPropagation):
         unknown_label: str = "unknown",
         keep_seeds: bool = True,
         n_clusters: int | None = None,
+        fallback_min_seed_conf: float | None = None,
         n_init: int | str = 20,
         max_iter: int = 500,
         scale_features: bool = True,
@@ -82,6 +88,7 @@ class KMeansPropagation(BaseMLPropagation):
             **kwargs,
         )
         self.n_clusters = n_clusters
+        self.fallback_min_seed_conf = fallback_min_seed_conf
         self.n_init = n_init
         self.max_iter = max_iter
         self.scale_features = scale_features
@@ -114,9 +121,25 @@ class KMeansPropagation(BaseMLPropagation):
         # Seed-class centroids (in the clustered feature space) for seedless clusters.
         is_labeled_arr = is_labeled.to_numpy()
         y_raw_arr = y_raw.to_numpy()
-        known_types = np.unique(y_train)
+        if self.fallback_min_seed_conf is None:
+            fallback_mask = is_labeled_arr
+        else:
+            seed_conf = self._seed_confidence(adata)
+            if seed_conf is None:
+                raise ValueError(
+                    f"Seed confidence key '{self.conf_key}' (or prefixed candidates) not found "
+                    "in adata.obs when fallback_min_seed_conf is set."
+                )
+            fallback_mask = (y_raw_arr != self.unknown_label) & (
+                seed_conf > self.fallback_min_seed_conf
+            )
+            if not fallback_mask.any():
+                raise ValueError(
+                    "No seeds clear fallback_min_seed_conf, so seedless clusters cannot be placed."
+                )
+        known_types = np.unique(y_raw_arr[fallback_mask])
         centroids = np.vstack(
-            [X_scaled[is_labeled_arr & (y_raw_arr == t)].mean(axis=0) for t in known_types]
+            [X_scaled[fallback_mask & (y_raw_arr == t)].mean(axis=0) for t in known_types]
         )
 
         cluster_to_type: dict[int, str] = {}

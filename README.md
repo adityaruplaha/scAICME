@@ -140,11 +140,11 @@ See `examples/gse225475/README.md` for the data layout and the parity record.
 
 ## Example: PBMC 68k
 
-`examples/pbmc68k/run.py` reproduces the PBMC 68k notebook: QC →
-quota seeding (`QCQAdaptiveSeeding` with `target_frac`) → `GCNSeeding` on its score
-matrix → 15 PCs → SVM / K-Means / KNN / Random Forest / MLP → plurality consensus →
-rare-cell flag and agreement metrics against a reference annotation
-(`icme.evaluation.compare_many`). See `examples/pbmc68k/README.md`.
+`examples/pbmc68k/run.py` reproduces the final PBMC 68k notebook: QC → DP-GMM
+marker-set seeding without PCA (`DPGMMSeeding`) → 30 PCs → SVM / K-Means / KNN /
+Random Forest / MLP → plurality consensus → Leiden, agreement metrics against a
+reference annotation (`icme.evaluation.compare_many`) and cluster-quality scores
+(`icme.evaluation.cluster_quality`). See `examples/pbmc68k/README.md`.
 
 ```bash
 PYTHONPATH=src uv run python examples/pbmc68k/run.py
@@ -153,9 +153,11 @@ PYTHONPATH=src uv run python examples/pbmc68k/run.py
 ### Evaluation helpers
 
 `icme.evaluation.compare_labels(adata, pred_key, ref_key)` returns ARI, NMI, macro-F1,
-accuracy and coverage (over all cells and over cells labeled in both columns);
-`compare_many` tabulates several prediction columns; `flag_rare` marks cells with weak
-consensus agreement or tiny consensus types.
+accuracy, macro one-vs-rest specificity and sensitivity, and coverage (over all cells
+and over cells labeled in both columns); `compare_many` tabulates several prediction
+columns; `cluster_quality` gives silhouette, Calinski-Harabasz and Davies-Bouldin
+scores for a label column in an embedding; `flag_rare` marks cells with weak consensus
+agreement or tiny consensus types.
 
 ## Example: PBMC3k Dataset (demo)
 
@@ -310,7 +312,7 @@ Extend seed identities to unlabeled cells using supervised learning:
 | Random Forest Propagation | `RandomForestPropagation` | Ensemble-based classification (`max_depth`, `min_samples_leaf`, `max_features`, `class_weight`) |
 | SVM Propagation | `SVMPropagation` | Kernel SVM with optional Platt probabilities (`class_weight="balanced"` supported) |
 | Neural Network Propagation | `NeuralNetworkPropagation` | MLP classifier with early stopping (`validation_fraction`, `n_iter_no_change`, `scale_features`) |
-| K-Means Propagation | `KMeansPropagation` | Cluster all cells, label each cluster by its majority seed; confidence is that majority's share of the cluster, seedless clusters take the nearest seed-class centroid |
+| K-Means Propagation | `KMeansPropagation` | Cluster all cells, label each cluster by its majority seed; confidence is that majority's share of the cluster, seedless clusters take the nearest seed-class centroid (restrict that fallback to confident seeds with `fallback_min_seed_conf`) |
 | Nearest Centroid Propagation | `NearestCentroidPropagation` | Centroid-based assignment |
 
 **Common Parameters:**

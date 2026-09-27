@@ -1,15 +1,21 @@
 # PBMC 68k: notebook reproduction
 
-Package-level reproduction of the PBMC 68k notebook (SHA256
-`7dee319eda6c1b85e647338c4ac633d68667a6c8fdb920dc7abc42faad4448a7`), the PBMC 68k
-notebook. It replaces the earlier `examples/pbmc68k/run.py`, which was an unfinished
-attempt at a later PBMC notebook.
+Package-level reproduction of the final PBMC 68k notebook (SHA256
+`ed3e912d9a4e1bd99a4248661fe3bd6e9a55edeea1385a9d71e7c322108cc6ac`, Sept 2026).
+It replaces the earlier reproduction of the previous PBMC notebook, whose lineage
+remains covered by `tests/test_pbmc68k_notebook_parity.py`.
+
+The saved run of that notebook seeds with **Method 2** (DP-GMM per marker set, no PCA):
+its Method 1 and Method 3 cells are defined but were never executed
+(`execution_count: null`), and the cells that were executed run in the order
+load → Method 2 → classifiers → Leiden → metrics → scANVI.
 
 ## Data
 
 ```
 data/pbmc68k/filtered_matrices_mex/hg19/{matrix.mtx,genes.tsv,barcodes.tsv}
 data/pbmc68k/pbmc_annot.csv        # one column, attached by row order
+data/pbmc68k/label_scanvi.csv      # optional; attached when present
 ```
 
 The matrix is the public 10x "Fresh 68k PBMCs (Donor A)" filtered gene/barcode
@@ -43,66 +49,97 @@ The annotation only feeds the evaluation step; labels do not depend on it.
 PYTHONPATH=src uv run python examples/pbmc68k/run.py
 ```
 
-Outputs in `examples/pbmc68k/outputs/`: `pbmc68k_labels.csv` (reference, seeds,
-consensus, agreement, rare flag per cell), `ablation_metrics.csv` (the notebook's
-metrics table) and `pbmc68k_annotated.h5ad`.
+Outputs in `examples/pbmc68k/outputs/`: `pbmc68k_labels.csv` (reference, seeds, the five
+classifier labels, consensus and agreement, Leiden, scANVI when available),
+`classwise_metrics.csv`, `pbmc_scACIME_cluster_metrics.csv` and
+`pbmc68k_annotated.h5ad`.
+
+The DP-GMM stage fits a 100-component full-covariance mixture per marker set and the
+silhouette score is quadratic in the number of cells, so the run is long; set
+`CLUSTER_QUALITY = False` in `run.py` to skip the cluster-quality table.
 
 ## Pipeline ↔ notebook mapping
 
 | Notebook | Package |
 | --- | --- |
-| cell 0: `read_10x_mtx`, annotation by row order, QC, normalize + log1p | `load_pbmc68k()`, `icme.pp.qc_filter`, `icme.pp.normalize_log1p` |
-| cells 6–7: Method 1 `weak_label_quota_with_min_cells` (quantile 0.6, target 55 %, ≥ 50 cells/type, min score 0.2) | `QCQAdaptiveSeeding(quantile=0.6, target_frac=0.55, min_cells_per_type=50, min_score=0.2)`; its score matrix is `obsm["weak_label_quota_scores"]` |
-| cells 10–11: Method 2 `dp_seed_by_marker_sets_soft` — defined, **not executed**, and overwritten by Method 3 | `DPGMMSeeding(...)` with `RUN_DPGMM = True` (off by default) |
-| cells 13–14: Method 3 `gcn_seed_labeling` on Method 1's scores (PCA 30 / 15 neighbors built inside; gates 0.2 / 0.15; cap 55 %; floor max(200, 0.5 %)) → `weak_label` | `GCNSeeding(initial_scores_key="weak_label_quota_scores", ...)` |
-| cell 15: PCA(15, arpack), neighbors(15), UMAP | `prepare_features()` (UMAP skipped: it feeds no downstream step) |
-| cells 16–25: SVM (C=5, balanced, seeds kept, min_conf 0.55), K-Means (k = #seed types), KNN (k=3, distance, Manhattan), RF (300 trees, balanced_subsample), MLP ((256,128), seeds kept, min_conf 0.55) | the five propagation strategies with those settings |
-| cell 27: plurality consensus, agreement = votes / 5 | `ConsensusVoting(majority_fraction=None, fraction_of="all")` |
-| cell 30: rare/novel flag (agreement ≤ 0.4 or type < 0.5 %) | `icme.evaluation.flag_rare` |
-| cells 32–34: `compare_labels` per method → `ablation_metrics.csv` | `icme.evaluation.compare_many` |
-| cells 35–39: UMAP figures of `adata_syn` (a synthetic object not defined in this notebook) | not reproduced |
+| cell 0: `read_10x_mtx`, annotation by row order, QC, normalize + log1p, marker panels | `load_pbmc68k()`, `icme.pp.qc_filter`, `icme.pp.normalize_log1p` |
+| cells 1–2: Method 1 quota seeding and Method 3 quota GCN seeding — defined, **never executed** | not part of this pipeline; `QCQAdaptiveSeeding(target_frac=...)` and `GCNSeeding` are the package equivalents |
+| cells 3–4: Method 2 `dp_seed_by_marker_sets_soft_no_pca` (per-gene quantile 0.4, cluster score ≥ 0.1, ≥ 100 cells/cluster, `n_components = min(100, √N)`, prior 0.05, floor max(100, 0.002 N)) → `weak_label` | `DPGMMSeeding(...)` with those settings and `use_raw=False` |
+| cell 5: PCA(30, arpack), neighbors(15, 30 PCs) | `prepare_features()` |
+| cell 5: SVM (C=2, balanced, min_conf 0.60), k-means (k = min(30, max(10, √(N/2))), n_init 20), KNN (k=9, distance, Euclidean, min_conf 0.55), RF (500 trees, depth 18, leaf 5, balanced_subsample, min_conf 0.55), MLP ((128,64), α=1e-3, 400 iters, early stopping, min_conf 0.60); all with `min_seed_conf=0.30`, 30 PCs, and every cell predicted | the five propagation strategies with those settings and `keep_seeds=False` |
+| cell 5: plurality consensus, agreement = votes / 5 | `ConsensusVoting(majority_fraction=None, fraction_of="all")` |
+| cell 6: `sc.tl.leiden(resolution=1.6)` | `run_leiden()` |
+| cells 9–10: `compare_labels_ari_acc_spec_sens` per method → `classwise_metrics.csv` | `icme.evaluation.compare_many` (ARI, accuracy, macro specificity and sensitivity, plus NMI and macro-F1) |
+| cells 11–13: scANVI predictions, read from `label_scanvi.csv` and one class relabelled | `attach_scanvi()` when the file is present; the notebook's own training cell is not reproduced |
+| cell 15: `clustering_metrics` on the consensus → `pbmc_scACIME_cluster_metrics.csv` | `icme.evaluation.cluster_quality` |
+| cells 7–8, 14: marker dot plot and heat map, rare-cell UMAP panels | not reproduced (figure code) |
 
 Deviations worth knowing:
 
-- The notebook's SVM sets no `random_state`, so its Platt scaling is not reproducible;
-  the example fixes `random_state=42`.
-- The notebook's K-Means fallback for a seedless cluster references an undefined
-  variable (`C`); the package uses the nearest seed-class centroid. With four seeded
-  types and ~8k seeds no cluster is seedless, so this path is not exercised.
-- PCA/neighbors for Method 3 use the notebook's defaults (30 PCs, 15 neighbors) and are
-  then recomputed with 15 PCs for propagation, exactly as the notebook does.
+- **DP seeding uses no PCA.** Cell 4 calls `dp_seed_by_marker_sets_soft`, the variant
+  that reduces each marker block with PCA, and its stored output reports `n_pcs=10`; but
+  the notebook defines only `dp_seed_by_marker_sets_soft_no_pca`, so that call resolved
+  to a definition left in the kernel from an earlier session. The no-PCA version is the
+  one reproduced here, by decision, which means the seed counts below are **not**
+  expected to match the stored cell 4 output.
+- The notebook evaluates against `cell_type_true`, a column nothing in it creates; this
+  example uses `pseudo_cell_type` from the loader instead.
+- The notebook's k-means takes its per-cluster majority vote over every labelled seed
+  but builds the seedless-cluster fallback centroids only from seeds above 0.3
+  confidence. `KMeansPropagation(min_seed_conf=0.0, fallback_min_seed_conf=0.3)`
+  reproduces both masks.
+- scANVI is attached from the saved CSV rather than retrained, as the notebook does in
+  cell 12.
 
-## Parity record (2026-09-15)
+## Parity record (2026-09-28)
 
 Run in this repository's environment (Python 3.12, scanpy 1.12, scikit-learn 1.8,
-anndata 0.12.6, numpy 2.3.5), about 5 minutes:
+anndata 0.12.6, numpy 2.3.5). About 45 minutes wall clock, most of it the eleven
+DP-GMM fits, plus the silhouette.
 
 - QC: 68,154 cells × 17,676 genes; thresholds `umi_hi≈3874`, `genes_hi≈1265`,
   `mito_hi=20.0%` — identical to the notebook output.
-- Method 1 (quota seeds): **identical** to the notebook — 34,601 labeled and all nine
-  per-type counts (7203 / 7183 / 5476 / 4133 / 4085 / 3392 / 2239 / 593 / 297).
-- Method 3 (GCN seeds), against the notebook's printed counts:
+- DP seeding, per marker set, against the notebook's stored cell 4 output. The size
+  floor resolves to 136 in both, and no type falls below it.
 
-  | type | this run | notebook |
-  | --- | ---: | ---: |
-  | CD19+ B | 3940 | 3940 |
-  | CD14+ Monocyte | 3283 | 3281 |
-  | CD8+ Cytotoxic T | 642 | 660 |
-  | CD4+/CD45RO+ Memory | 353 | 354 |
-  | total seeds | 8218 | 8235 |
+  | marker set | markers present | this run | notebook | notebook `n_pcs` |
+  | --- | ---: | ---: | ---: | ---: |
+  | CD56+ NK | 10 | **12998** | **12998** | 10 |
+  | Dendritic | 9 | **8223** | **8223** | 9 |
+  | CD34+ | 7 | **0** | **0** | 7 |
+  | CD4+ T Helper2 | 9 | **37753** | **37753** | 9 |
+  | CD8+/CD45RA+ Naive Cytotoxic | 11 | 54927 | 54345 | 10 |
+  | CD4+/CD25 T Reg | 11 | 48795 | 49827 | 10 |
+  | CD8+ Cytotoxic T | 12 | 29221 | 30690 | 10 |
+  | CD19+ B | 11 | 12364 | 10534 | 10 |
+  | CD14+ Monocyte | 12 | 5371 | 7304 | 10 |
+  | CD4+/CD45RO+ Memory | 11 | 54063 | 55304 | 10 |
+  | CD4+/CD45RA+/CD25- Naive T | 11 | 54906 | 54548 | 10 |
 
-- Running the notebook's own functions verbatim (cells 6, 13, 16, 18, 20, 22, 24, 27,
-  32; `tests/reference_pbmc68k_notebook.py`) on the same in-memory data and the same kNN
-  graph gives **identical** Method 1 scores and labels, Method 3 labels and
-  confidences, all five classifier label sets, the consensus and agreement fractions,
-  and the `compare_labels` metrics. The 17-seed Method 3 difference above therefore
-  comes from the inputs to that stage — `sc.pp.neighbors` (approximate kNN) and
-  ARPACK PCA — differing between this environment and the one the notebook
-  was run in, not from the pipeline. The same equality is asserted on synthetic
-  data in `tests/test_pbmc68k_notebook_parity.py`.
-- Consensus (this run): CD4+/CD45RO+ Memory 42,237; CD8+ Cytotoxic T 16,370; CD19+ B
-  5,042; CD14+ Monocyte 4,505; 1,534 cells (2.25 %) flagged rare/novel (notebook:
-  1,683, 2.47 %). The notebook does not print its consensus counts.
-- Metrics table: computed against the public-annotation stand-in, so the values are
-  not comparable to the notebook's `ablation_metrics.csv` until the original
-  `pbmc_annot.csv` is supplied.
+  The split is exact and it explains itself. Every set with at most 10 markers present
+  reproduces the notebook's labelled count and its number of signal components exactly;
+  every set with 11 or more differs. A
+  full-covariance Gaussian mixture is equivariant under invertible linear maps, so when
+  the notebook's PCA keeps all `n_features` dimensions it is a pure rotation and changes
+  nothing, while at 11 or 12 markers `pca_n=10` genuinely discards a dimension and the
+  fit changes. So the stored output did come from the PCA variant, the port itself is
+  confirmed correct wherever PCA was lossless, and the remaining differences are the
+  intended consequence of dropping PCA rather than an implementation discrepancy.
+
+- Consensus (this run): CD4+/CD25 T Reg 25,226; CD8+/CD45RA+ Naive Cytotoxic 19,885;
+  CD8+ Cytotoxic T 9,314; CD56+ NK 4,531; CD19+ B 4,303; CD14+ Monocyte 3,864;
+  Dendritic 564; CD4+ T Helper2 317; CD4+/CD45RA+/CD25- Naive T 102;
+  CD4+/CD45RO+ Memory 48. The notebook does not print its consensus counts.
+- Leiden at resolution 1.6 gives 18 clusters. Cluster quality of the consensus:
+  silhouette 0.053, Calinski-Harabasz 5579, Davies-Bouldin 2.80.
+- The metrics table was computed against the public-annotation stand-in, so its values
+  are **not** comparable to the notebook's `classwise_metrics.csv` until the original
+  `pbmc_annot.csv` is supplied. Ranking in this run, by ARI on cells labelled in both:
+  random forest 0.538, SVM 0.498, MLP 0.450, k-means 0.203, consensus 0.202, KNN 0.178.
+  The three rejecting classifiers cover 28-41 % of cells, k-means and the consensus 100 %.
+
+The notebook's own functions (cells 3, 5, 9 and 15) are kept verbatim in
+`tests/reference_pbmc68k_dp_notebook.py`, and `tests/test_pbmc68k_dp_parity.py` asserts
+that the package reproduces them label for label on synthetic data: DP seed labels and
+confidences, all five classifier label sets, the k-means confidences, the consensus and
+its agreement fractions, and both metric functions.

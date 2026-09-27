@@ -229,7 +229,8 @@ class TestPropagationParity:
         want = ref.compare_labels(
             nb, "label_consensus", "label_knn", ignore_labels=(UNLABELED, "Unknown")
         )
-        assert got.keys() == want.keys()
+        # The package reports extra metrics, so require a superset with equal values.
+        assert want.keys() <= got.keys()
         for k in want:
             if isinstance(want[k], float):
                 assert got[k] == pytest.approx(want[k], nan_ok=True), k

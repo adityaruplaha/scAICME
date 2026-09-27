@@ -54,6 +54,51 @@ class TestKMeansPropagation:
         assert "unknown" not in adata.obs["km"].values
         assert set(adata.obs.loc[seedless, "km"]) <= {"Class A", "Class B", "Class C", "Class D"}
 
+    def test_fallback_min_seed_conf_splits_the_two_seed_uses(
+        self, synthetic_adata_with_multi_class_seeds
+    ):
+        """Low-confidence seeds still vote, but cannot place a seedless cluster."""
+        adata = synthetic_adata_with_multi_class_seeds
+        seeds = adata.obs["seed_labels_multi"].astype(str)
+        # Class D seeds are the only low-confidence ones.
+        conf = np.where(seeds == "Class D", 0.1, 0.9)
+        conf[seeds == "unknown"] = 0.0
+        adata.obs["seed_conf"] = conf
+
+        shared = {
+            "seed_key": "seed_labels_multi",
+            "conf_key": "seed_conf",
+            "n_clusters": 40,
+            "keep_seeds": False,
+            "min_seed_conf": 0.0,
+            "random_state": 42,
+        }
+        tl.label(adata, strategies.KMeansPropagation(**shared), key_added="km_all")
+        tl.label(
+            adata,
+            strategies.KMeansPropagation(fallback_min_seed_conf=0.3, **shared),
+            key_added="km_split",
+        )
+
+        # Clusters holding seeds are decided by the vote, which ignores confidence.
+        voted = adata.obs["km_all_confidence"] > 0
+        assert voted.any()
+        assert (adata.obs.loc[voted, "km_all"] == adata.obs.loc[voted, "km_split"]).all()
+        assert "Class D" in set(adata.obs.loc[voted, "km_split"])
+        # Seedless clusters can no longer be given to the low-confidence class.
+        seedless = ~voted
+        assert seedless.any()
+        assert "Class D" not in set(adata.obs.loc[seedless, "km_split"])
+
+    def test_fallback_min_seed_conf_needs_a_confidence_column(
+        self, synthetic_adata_with_multi_class_seeds
+    ):
+        strategy = strategies.KMeansPropagation(
+            seed_key="seed_labels_multi", fallback_min_seed_conf=0.3, n_clusters=10
+        )
+        with pytest.raises(ValueError, match="fallback_min_seed_conf"):
+            strategy.execute_on(synthetic_adata_with_multi_class_seeds)
+
     def test_min_conf_rejects_low_purity(self, synthetic_adata_with_multi_class_seeds):
         adata = synthetic_adata_with_multi_class_seeds
         strategy = strategies.KMeansPropagation(

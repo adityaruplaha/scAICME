@@ -32,6 +32,24 @@ class BaseMLPropagation(BaseLabelingStrategy, ABC):
         self.min_conf = min_conf
         self.max_pcs = max_pcs
 
+    def _resolve_conf_key(self, adata: AnnData) -> str | None:
+        """Return the `.obs` key holding seed confidences, or None if there is none."""
+        candidates = [
+            self.conf_key,
+            f"{self.seed_key}_{self.conf_key}",
+            f"{self.seed_key}_max_confidence",
+            f"{self.seed_key}_max_score",
+            f"{self.seed_key}_margin",
+        ]
+        return next((c for c in candidates if c in adata.obs), None)
+
+    def _seed_confidence(self, adata: AnnData) -> np.ndarray | None:
+        """Seed confidences as a float array, or None if no confidence column exists."""
+        key = self._resolve_conf_key(adata)
+        if key is None:
+            return None
+        return adata.obs[key].to_numpy(dtype=float, na_value=0.0)
+
     def _prepare_data(
         self, adata: AnnData
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.Series, pd.Series]:
@@ -48,23 +66,11 @@ class BaseMLPropagation(BaseLabelingStrategy, ABC):
         is_labeled = y_raw != self.unknown_label
 
         if self.min_seed_conf > 0.0:
-            actual_conf_key = None
-            candidates = [
-                self.conf_key,
-                f"{self.seed_key}_{self.conf_key}",
-                f"{self.seed_key}_max_confidence",
-                f"{self.seed_key}_max_score",
-                f"{self.seed_key}_margin",
-            ]
-            for candidate in candidates:
-                if candidate in adata.obs:
-                    actual_conf_key = candidate
-                    break
-            if actual_conf_key is None:
+            seed_conf = self._seed_confidence(adata)
+            if seed_conf is None:
                 raise ValueError(
                     f"Seed confidence key '{self.conf_key}' (or prefixed candidates) not found in adata.obs when min_seed_conf > 0."
                 )
-            seed_conf = adata.obs[actual_conf_key].to_numpy(dtype=float, na_value=0.0)
             is_labeled = is_labeled & (seed_conf >= self.min_seed_conf)
 
         if not is_labeled.any():

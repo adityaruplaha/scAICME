@@ -10,21 +10,56 @@ from anndata import AnnData
 from sklearn.metrics import (
     accuracy_score,
     adjusted_rand_score,
+    calinski_harabasz_score,
+    confusion_matrix,
+    davies_bouldin_score,
     f1_score,
     normalized_mutual_info_score,
+    silhouette_score,
 )
 
 DEFAULT_IGNORE = ("unknown", "unlabeled", "Unknown")
 
 
+_METRIC_KEYS = (
+    "ARI",
+    "NMI",
+    "macroF1",
+    "acc",
+    "specificity_macro",
+    "sensitivity_macro",
+)
+
+
+def _specificity_sensitivity_macro(y_ref: np.ndarray, y_pred: np.ndarray) -> tuple[float, float]:
+    """Macro one-vs-rest specificity (TNR) and sensitivity (TPR).
+
+    Classes are every label appearing in either vector; a class for which a rate is
+    undefined (no negatives, or no positives in the reference) is skipped rather than
+    counted as zero, so the macro average is over the classes where it is defined.
+    """
+    classes = np.unique(np.concatenate([y_ref, y_pred]))
+    specificities, sensitivities = [], []
+    for cls in classes:
+        ref_bin = (y_ref == cls).astype(int)
+        pred_bin = (y_pred == cls).astype(int)
+        tn, fp, fn, tp = confusion_matrix(ref_bin, pred_bin, labels=[0, 1]).ravel()
+        specificities.append(tn / (tn + fp) if (tn + fp) > 0 else np.nan)
+        sensitivities.append(tp / (tp + fn) if (tp + fn) > 0 else np.nan)
+    return float(np.nanmean(specificities)), float(np.nanmean(sensitivities))
+
+
 def _metrics(y_ref: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     if y_pred.size == 0:
-        return {"ARI": np.nan, "NMI": np.nan, "macroF1": np.nan, "acc": np.nan, "n_eval": 0}
+        return {**dict.fromkeys(_METRIC_KEYS, np.nan), "n_eval": 0}
+    specificity, sensitivity = _specificity_sensitivity_macro(y_ref, y_pred)
     return {
         "ARI": adjusted_rand_score(y_ref, y_pred),
         "NMI": normalized_mutual_info_score(y_ref, y_pred),
         "macroF1": f1_score(y_ref, y_pred, average="macro", zero_division=0),
         "acc": accuracy_score(y_ref, y_pred),
+        "specificity_macro": specificity,
+        "sensitivity_macro": sensitivity,
         "n_eval": int(y_pred.size),
     }
 
@@ -38,11 +73,12 @@ def compare_labels(
 ) -> Dict[str, object]:
     """Compare a prediction column against a reference column.
 
-    Returns ARI, NMI, macro-F1, accuracy and coverage. With ``evaluate_on="all"`` the
-    metrics use every cell; with ``"labeled"`` only cells where both columns carry a
-    label outside `ignore_labels`; ``"both"`` reports both, prefixed ``all_`` and
-    ``labeled_``. Macro-F1 and accuracy assume the two columns share a label
-    vocabulary; ARI and NMI do not.
+    Returns ARI, NMI, macro-F1, accuracy, macro one-vs-rest specificity and
+    sensitivity, plus coverage. With ``evaluate_on="all"`` the metrics use every cell;
+    with ``"labeled"`` only cells where both columns carry a label outside
+    `ignore_labels`; ``"both"`` reports both, prefixed ``all_`` and ``labeled_``.
+    Macro-F1, accuracy, specificity and sensitivity assume the two columns share a
+    label vocabulary; ARI and NMI do not.
     """
     if evaluate_on not in ("all", "labeled", "both"):
         raise ValueError("evaluate_on must be 'all', 'labeled' or 'both'.")
@@ -105,3 +141,28 @@ def flag_rare(
     tiny_types = set(counts[counts < tiny_cut].index.tolist())
     tiny = adata.obs[label_key].isin(tiny_types).to_numpy()
     return pd.Series(low | tiny, index=adata.obs_names, name="rare_flag")
+
+
+def cluster_quality(adata: AnnData, label_key: str, obsm_key: str = "X_pca") -> Dict[str, object]:
+    """Internal cluster-quality scores for a label column in an embedding.
+
+    Returns silhouette, Calinski-Harabasz and Davies-Bouldin scores computed on
+    ``adata.obsm[obsm_key]``, all NaN when the column holds fewer than two labels.
+    These measure geometric separation in the embedding, not agreement with any
+    reference annotation. Silhouette is O(n^2) in the number of cells.
+    """
+    X = np.asarray(adata.obsm[obsm_key])
+    labels = adata.obs[label_key].astype(str).to_numpy()
+    if len(np.unique(labels)) < 2:
+        return {
+            "method": label_key,
+            "silhouette": np.nan,
+            "calinski_harabasz": np.nan,
+            "davies_bouldin": np.nan,
+        }
+    return {
+        "method": label_key,
+        "silhouette": float(silhouette_score(X, labels)),
+        "calinski_harabasz": float(calinski_harabasz_score(X, labels)),
+        "davies_bouldin": float(davies_bouldin_score(X, labels)),
+    }
